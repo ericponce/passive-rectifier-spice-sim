@@ -72,19 +72,30 @@ if __name__ == "__main__":
 
     mix1_idx = np.argmin(np.abs(w - 2 * np.pi * f_mix))
     roll = mix1_idx - Nf // 2
+
+    # dc term
+    Ydc_zero = Ydc[Nf//2]
+
+    # fundamental harmonic
     Ydc_plus = np.roll(Ydc, -roll)
     Ydc_minus = np.roll(Ydc, roll)
 
-    Ydc_plus2 = np.roll(Ydc, -3*roll) / 3
-    Ydc_minus2 = np.roll(Ydc, 3*roll) / 3
+    # third harmonic
+    Ydc_plus3 = np.roll(Ydc, -3*roll) / 3**2
+    Ydc_minus3 = np.roll(Ydc, 3*roll) / 3**2
+
+    # fifth harmonic
+    Ydc_plus5 = np.roll(Ydc, -5*roll) / 5**2
+    Ydc_minus5 = np.roll(Ydc, 5*roll) / 5**2
 
     Yac = (4 / np.pi**2) * (Ydc_plus + Ydc_minus + \
-                            # Ydc_plus2 + Ydc_minus2 + \
-                            Ydc[Nf//2])
+                            Ydc_plus3 + Ydc_minus3 + \
+                            Ydc_plus5 + Ydc_minus5 + \
+                            Ydc_zero)
     Zac = 1 / Yac
 
     # Spice Simulation
-    freqs = np.linspace(1, 200, 15)
+    freqs = np.linspace(1, 200, 10)
     freqs = np.floor(freqs)
     timesteps = 1 / (1000 * freqs)
     timesteps = np.clip(timesteps, None, 1 / (1000 * f_mix))
