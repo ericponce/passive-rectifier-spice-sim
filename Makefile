@@ -52,7 +52,7 @@ SPICE_OUTPUT_FILES_B = $(addprefix $(OUT_DIR_F), $(notdir $(SPICE_OUTPUT_FILES))
 
 all : make_output_dir $(SPICE_RAW_FILE_B)
 
-$(OUT_DIR_F)%.raw : %.asc $(GENERATED_FILES)
+$(OUT_DIR_F)%.raw : %.asc %.gen make_output_dir
 	@echo "Running LTSPICE"
 	$(LTSPICE) $(LTSPICE_ARGS) $<
 	@echo "Moving $(notdir $@) to $@"
@@ -79,7 +79,9 @@ make_output_dir :
 
 
 clean :
-	rm $(SPICE_OUTPUT_FILES_B)
-
+	rm $(OUT_DIR_F)*.$(RAW_EXT)
+	rm $(OUT_DIR_F)*.$(LOG_EXT)
+	rm $(OUT_DIR_F)*.$(NET_EXT)
+	rm $(OUT_DIR_F)*.$(OP_RAW_EXT)
 
 .PHONY : all run clean

@@ -1,5 +1,5 @@
 # Project specific
-gen.txt
+*.gen
 
 *.net
 *.op.raw

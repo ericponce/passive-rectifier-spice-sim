@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import quad
 
+import argparse
+
 # write a parameter file for the sim
 # only write to the actual paramter file if it is different
 # (so make doesn't needlessly compile)
@@ -28,8 +30,8 @@ def write_param_file(filename, params):
         copyfile(tmp_filename, filename)
         os.remove(tmp_filename)
 
-def execute_spice():
-    os.system('make')
+def execute_spice(model):
+    os.system('make build/' + model + '.raw')
 
 def read_raw_file(simname):
     return RawRead("build/{:s}.raw".format(simname))
@@ -50,6 +52,8 @@ def get_fourier_decomposition(t, x, omega):
     return np.abs(fc) * np.exp(-1j * omega * t + np.angle(fc))
 
 if __name__ == "__main__":
+    model = 'base_RLC'
+
     gen_params = {
         'fl':60,
         'fp':21,
@@ -61,11 +65,11 @@ if __name__ == "__main__":
         'timestep':1e-6
     }
 
-    write_param_file('gen.txt', gen_params)
+    write_param_file(model+'.gen', gen_params)
 
-    execute_spice()
+    execute_spice(model)
 
-    ltr = read_raw_file('base')
+    ltr = read_raw_file(model)
 
     # the simulation will only have one step, 0
     step = 0
