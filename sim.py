@@ -36,20 +36,103 @@ def execute_spice(model):
 def read_raw_file(simname):
     return RawRead("build/{:s}.raw".format(simname))
 
-def compute_fourier_coefficient(t, x, omega):
+def get_voltage_and_current(model, interpolate_dt=None):
+    ltr = read_raw_file(model)
+    t = np.abs(ltr.get_trace('time').get_wave())
+    vac = ltr.get_trace('V(ac_p)').get_wave() \
+                - ltr.get_trace('V(ac_n)').get_wave()
+    iac = ltr.get_trace('I(R4)').get_wave()
 
-    # multiply by complex exponential
-    integrand = x * np.exp(-1j * omega * t)
+    vdc = ltr.get_trace('V(out)').get_wave()
+    idc = ltr.get_trace('I(R2)').get_wave()
 
-    # integrate over period(s)
-    fc = (2 / t[-1]) * np.trapz(integrand, t)
+    if interpolate_dt is not None:
+        N = int((t[-1] - t[0])/interpolate_dt)
+        x = np.linspace(t[0], t[-1], N)
+        xp = t
 
-    return fc
+        vac = np.interp(x, xp, vac)
+        iac = np.interp(x, xp, iac)
 
-def get_fourier_decomposition(t, x, omega):
-    fc = compute_fourier_coefficient(t, x, omega)
+        vdc = np.interp(x, xp, vdc)
+        idc = np.interp(x, xp, idc)
 
-    return np.abs(fc) * np.exp(-1j * omega * t + np.angle(fc))
+        t = x
+
+    return t, vac, iac, vdc, idc
+
+def extract_mixing_signal(model, interpolate_dt=None):
+    ltr = read_raw_file(model)
+    t = np.abs(ltr.get_trace('time').get_wave())
+    iPos = ltr.get_trace('I(D5)').get_wave()
+    iNeg = ltr.get_trace('I(D6)').get_wave()
+
+    if interpolate_dt is None:
+        mix = np.zeros_like(iPos)
+        mix[iPos > 0] = 1
+        mix[iNeg > 0] = -1
+
+        return t, mix
+    else: # interpolate
+        # Digitize Diode Current
+        iPosD = np.zeros_like(iPos)
+        iNegD = np.zeros_like(iNeg)
+        iPosD[iPos > 0] = 1
+        iNegD[iNeg > 0] = 1
+
+        # Find transistion points using the derivative of the square wave
+        diffPosD = np.diff(iPosD)
+        diffNegD = np.diff(iNegD)
+
+        pos_open_idxs = np.where(diffPosD > 0)[0] + 1
+        pos_close_idxs = np.where(diffPosD < 0)[0]
+
+        neg_open_idxs = np.where(diffNegD > 0)[0] + 1
+        neg_close_idxs = np.where(diffNegD < 0)[0]
+
+        N = int((t[-1] - t[0])/interpolate_dt)
+        t_interp = np.linspace(t[0], t[-1], N)
+        mix_interp = np.ones_like(t_interp) * (1 if iPos[0] > 0 else (-1 if iNeg[1] > 0 else 0))
+
+        for i in pos_open_idxs:
+            t_idx = np.argmin(np.abs(t[i] - t_interp))
+            mix_interp[t_idx:] += 1
+
+        for i in pos_close_idxs:
+            t_idx = np.argmin(np.abs(t[i] - t_interp))
+            mix_interp[t_idx:] -= 1
+
+        for i in neg_open_idxs:
+            t_idx = np.argmin(np.abs(t[i] - t_interp))
+            mix_interp[t_idx:] -= 1
+
+        for i in neg_close_idxs:
+            t_idx = np.argmin(np.abs(t[i] - t_interp))
+            mix_interp[t_idx:] += 1
+
+        return t_interp, mix_interp
+
+# def compute_fourier_coefficient(t, x, omega):
+#     # multiply by complex exponential
+#     integrand = x * np.exp(-1j * omega * t)
+
+#     # integrate over period(s)
+#     return (2 / t[-1]) * np.trapz(integrand, t)
+
+# def get_fourier_decomposition(t, x, omega):
+#     fc = compute_fourier_coefficient(t, x, omega)
+
+#     return np.abs(fc) * np.exp(-1j * omega * t + np.angle(fc))
+
+# very very simple fourier transform
+# sp = fourier_transform(time, data, frequencies (rad/s))
+def fourier_transform(t, x, w):
+    P = t[-1] - t[0] # integration period
+    omega = np.expand_dims(w, 1)
+    t = np.expand_dims(t, 0)
+    x = np.expand_dims(x, 1)
+
+    return (1 / P) * np.exp(-1j * omega @ t) @ x
 
 if __name__ == "__main__":
     model = 'base_RLC'

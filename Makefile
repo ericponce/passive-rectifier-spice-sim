@@ -53,16 +53,18 @@ SPICE_OUTPUT_FILES_B = $(addprefix $(OUT_DIR_F), $(notdir $(SPICE_OUTPUT_FILES))
 all : make_output_dir $(SPICE_RAW_FILE_B)
 
 $(OUT_DIR_F)%.raw : %.asc %.gen make_output_dir
-	@echo "Running LTSPICE"
+	@echo "Running LTSPICE:"
 	$(LTSPICE) $(LTSPICE_ARGS) $<
-	@echo "Moving $(notdir $@) to $@"
+	@echo "\tMoving files to build directory (fix this step for faster compilation)"
 	@mv $(notdir $@) $@
-	@echo "Moving $(notdir $(basename $@)).$(LOG_EXT) to $(basename $@).$(LOG_EXT)"
 	@mv $(notdir $(basename $@)).$(LOG_EXT) $(basename $@).$(LOG_EXT)
-	@echo "Moving $(notdir $(basename $@)).$(NET_EXT) to $(basename $@).$(NET_EXT)"
 	@mv $(notdir $(basename $@)).$(NET_EXT) $(basename $@).$(NET_EXT)
-	@echo "Moving $(notdir $(basename $@)).$(OP_RAW_EXT) to $(basename $@).$(OP_RAW_EXT)"
 	@mv $(notdir $(basename $@)).$(OP_RAW_EXT) $(basename $@).$(OP_RAW_EXT)
+
+# 	@echo "Moving $(notdir $@) to $@"
+# 	@echo "Moving $(notdir $(basename $@)).$(LOG_EXT) to $(basename $@).$(LOG_EXT)"
+# 	@echo "Moving $(notdir $(basename $@)).$(NET_EXT) to $(basename $@).$(NET_EXT)"
+# 	@echo "Moving $(notdir $(basename $@)).$(OP_RAW_EXT) to $(basename $@).$(OP_RAW_EXT)"
 
 $(SPICE_RAW_FILE_B) : Makefile
 
