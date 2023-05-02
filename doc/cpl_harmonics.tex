@@ -43,7 +43,7 @@
 
 \maketitle
 
-\tableofcontents
+% \tableofcontents
 
 % ------------------------------------------------------------------------------
 
@@ -60,39 +60,36 @@ The circuit may be described as follows:
 	\draw (2, 0) -- ++(-2, 0)
 		to[vsource, v=$V_T$] ++(0, 2)
 		to[vsourcesin, v=$v_t$] ++(0, 2) -- ++(4, 0)
-		to[generic] ++(0, -4) -- ++(-2, 0);
+		to[generic,l=P] ++(0, -4) -- ++(-2, 0);
 \end{circuitikz}
 \caption{Constant Power Load Test Circuit.}
 \end{figure}
 
-Consider a constant power load for power $P$ being driven by a voltage $v_T(t) = V_T + v_t\cos{t}$ where $V_I$ is the bias voltage and $v_i$ is the pertubation amplitude.
-The current for this circuit is dictated by the relation $P = v_T(t) i_T(t)$ and can be found as:
+Consider a load that draws constant power $P$ being driven by a voltage $v_T(t) = V_T + v_t\cos{t}$ where $V_I$ is the bias voltage and $v_i$ is the pertubation amplitude.
+The current for this circuit is
 
 \begin{equation}
-i_T = \frac{P}{v_T(t)} = \frac{P}{V_T + v_t \cos{t}}
+i_T = \frac{P}{v_T(t)} = \frac{P}{V_T + v_t \cos{t}}.
 \end{equation}
 
-This \emph{is} a nonlinear function and contain harmonics at multiples of the fundamental.
+This \emph{is} a nonlinear function and contains harmonics at multiples of the fundamental which are neglected by traditional small signal approximation approaches.
+
+Much past work has presented small-signal modeling approaches, but few consider the harmonics produced by constant power loads. 
+Jesse Paul used Volterra Kernels to determine harmonics in constant power loads within real world systems and perform large-signal stability analysis \cite{leonard_2014}.
 
 \newpage
 \section{Fourier Series}
 
 To solve for the fourier coefficients of the constant power load current, we start with a reminder of the definition of the fourier coefficients of a function $s(x)$ with a period of $2\pi$:
 
-\begin{equation}
-A_0 = \frac{1}{2\pi} \int_{-\pi}^{\pi} s(x) dx
-\end{equation}
+\begin{IEEEeqnarray}{rCl}
+	A_0 &=& \frac{1}{2\pi} \int_{-\pi}^{\pi} s(x)\,dx \\
+	A_n &=& \frac{1}{\pi} \int_{-\pi}^{\pi} s(x) \cos(nx)\,dx \\
+	B_n &=& \cancelToZero{\frac{1}{\pi} \int_{-\pi}^{\pi} s(x) \sin(nx)\,dx}
+\end{IEEEeqnarray}
 
-\begin{equation}
-A_n = \frac{1}{\pi} \int_{-\pi}^{\pi} s(x) \cos(nx) dx
-\end{equation}
-
-\begin{equation}
-B_n= \frac{1}{\pi} \int_{-\pi}^{\pi} s(x) \sin(nx) dx
-\end{equation}
-
-Since the function is even, the $B_n$ coefficients will be zero. 
-To begin to solve for the rest of the coefficients, we will rewrite the current into a more useful exponential form:
+Because the current is an even function, the $B_n$ coefficients will be zero. 
+Before we begin to solve for the rest of the coefficients, we present the current in a more useful exponential form:
 
 \begin{equation}
 i_T = \frac{P}{v_T(t)} = \frac{P}{V_T + v_t \cos{t}} = \frac{P}{V_T + \frac{v_t}{2}(e^{jt}+e^{-jt})} = \frac{2P}{2V_T + v_t(e^{jt}+e^{-jt})}
@@ -142,7 +139,7 @@ Let's start with the residue at $z=z_0$:
 \mathop{\mathrm{Res}}_{z=z_0} \left(\frac{1}{z^n}\frac{1+z^{2n}}{(z-z_0)(z-z_1)}\right) = \lim_{z\rightarrow z_0} \left(\frac{1+z^{2n}}{z^n (z-z_1)}\right) = \frac{1+z_0^{2n}}{z_0^n (z_0-z_1)}
 \end{equation}
 
-For the the residue at $z=0$, we use \eqref{eq:pole_identity3} and \eqref{eq:residue_identity1}:
+For the the residue at $z=0$, we use \eqref{eq:pole_identity3} and \eqref{eq:residue_identity2}:
 
 \begin{IEEEeqnarray}{rCl}
 	\mathop{\mathrm{Res}}_{z=0} \left(\frac{1}{z^n}\frac{1+z^{2n}}{(z-z_0)(z-z_1)}\right) &=& \mathop{\mathrm{Res}}_{z=0} \left(\frac{1+z^{2n}}{z^n}\frac{1}{z_0 - z_1}\sum_{k=0}^\infty z^k\left(z_0^{k+1} - z_1^{k+1}\right)\right) \nonumber\\
@@ -172,11 +169,9 @@ Combining the DC and harmonic terms, we arrive at the final solution:
 	i_T(t) = \frac{P}{\sqrt{V_T^2 - v_t^2}} + \sum_{n=1}^{\infty} \frac{2P}{z_1^n\sqrt{V_T^2-v_t^2}} \cos{nt}
 \end{IEEEeqnarray}
 
-If $V_T >> v_t$
-
+For comparison to the traditional small signal approach, we can take the ``small signal'' approximation of the fourier series. That is, if $V_T >> v_t$, $z_1 \approx -2V_T/v_t$ and, ultimately, 
 
 \begin{IEEEeqnarray}{rCl}
-	z_1 &\approx& -\frac{2V_T}{v_t}\\
 	i_T(t) &\approx& \frac{P}{V_T} + \sum_{n=1}^{\infty} \frac{2P}{z_1^nV_T} \cos{nt} \nonumber\\
 	&=& \frac{P}{V_T} + \sum_{n=1}^{\infty} \frac{P}{2^{n-1}V_T^{n+1}} v_t \cos{nt} \label{eq:approx_fourier}
 \end{IEEEeqnarray}
@@ -197,7 +192,16 @@ We have presented the solution for the fourier series of the current drawn by a 
 Also, we have presented the traditional small signal approximation of the current in \eqref{eq:small_signal}.
 
 Crucially, the first two terms of \eqref{eq:approx_fourier} and \eqref{eq:small_signal} and so while the small signal approximation is overall accurate in fundamental magnitude, it \emph{neglects} harmonics introduced by the non-linear constant power load.
-These harmonics play a role in relfected impedance across a mixing interface, such as a passive rectifier.
+These harmonics play a role in relfected impedance across a mixing interface, such as a passive rectifier, and their qualitative differences can be seen in an exagerrated form in \figurename ~\ref{fig:results}.
+
+\begin{figure}[htbp]
+    \center
+    \includegraphics[width=0.5\linewidth]{figs/cpl_fourier_rect.png}
+    \caption{Fourier and small signal approximation to constant power load current.}
+    \label{fig:results}
+\end{figure}
+
+
 
 \setcounter{section}{0}
 \renewcommand\thesection{\Alph{section}}
@@ -268,8 +272,12 @@ Using the above, we can create a even more general identity:
 % ------------------------------------------------------------------------------
 
 \bibliographystyle{IEEEtran}
-% \bibliography{References.bib}
+\begin{thebibliography}{1}
 
+\bibitem{leonard_2014}
+J.\@ P.\@ Leonard, ``Nonlinear Modeling Of Dc Constant Power Loads With Frequency Domain Volterra Kernels,''Florida State University, 2014.
+
+\end{thebibliography}
 % ------------------------------------------------------------------------------
 
 \end{document}
