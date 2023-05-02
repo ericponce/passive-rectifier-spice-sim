@@ -1,9 +1,17 @@
 # Project specific
 *.gen
 
+# LTSPICE
 *.net
 *.op.raw
 *.raw
+
+# LaTeX
+*.out
+*.log
+*.aux
+*.pdf
+*.toc
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
