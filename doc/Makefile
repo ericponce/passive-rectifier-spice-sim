@@ -8,7 +8,7 @@ LATEX = pdflatex
 #                             Project Config                                 #
 ##############################################################################
 
-TARGETS = cpl_harmonics.pdf
+TARGETS = cpl_harmonics.pdf passive_rectifier_impedance.pdf
 
 ##############################################################################
 #                                   Recipes                                  #
