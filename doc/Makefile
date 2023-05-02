@@ -1,7 +1,36 @@
-.PHONY: all clean
-all:
-	pdflatex cpl_harmonics.tex
-	pdflatex cpl_harmonics.tex
+##############################################################################
+#                                System Config                               #
+##############################################################################
 
-clean:
-	rm *.aux *.log *.out *.toc cpl_harmonics.pdf 
+LATEX = pdflatex
+
+##############################################################################
+#                             Project Config                                 #
+##############################################################################
+
+TARGETS = cpl_harmonics.pdf
+
+##############################################################################
+#                                   Recipes                                  #
+##############################################################################
+
+all: $(TARGETS)
+
+%.pdf : %.tex
+	$(LATEX) $<
+	$(LATEX) $<
+
+
+##############################################################################
+#                               Utility Recipes                              #
+##############################################################################
+
+clean_build :
+	@echo "Cleaning build files"
+	@rm -f *.aux *.log *.out
+
+clean : clean_build
+	@echo "Cleaning output files"
+	@rm -f cpl_harmonics.pdf 
+
+.PHONY: all clean_build clean
