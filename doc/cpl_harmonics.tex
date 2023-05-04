@@ -139,7 +139,8 @@ Let's start with the residue at $z=z_0$:
 \mathop{\mathrm{Res}}_{z=z_0} \left(\frac{1}{z^n}\frac{1+z^{2n}}{(z-z_0)(z-z_1)}\right) = \lim_{z\rightarrow z_0} \left(\frac{1+z^{2n}}{z^n (z-z_1)}\right) = \frac{1+z_0^{2n}}{z_0^n (z_0-z_1)}
 \end{equation}
 
-For the the residue at $z=0$, we use \eqref{eq:pole_identity3} and \eqref{eq:residue_identity2}:
+
+For the the residue at $z=0$, we start by using \eqref{eq:pole_identity3} to rewrite the residual in series form and then use \eqref{eq:residue_identity2} to eliminate the majority of the terms:
 
 \begin{IEEEeqnarray}{rCl}
 	\mathop{\mathrm{Res}}_{z=0} \left(\frac{1}{z^n}\frac{1+z^{2n}}{(z-z_0)(z-z_1)}\right) &=& \mathop{\mathrm{Res}}_{z=0} \left(\frac{1+z^{2n}}{z^n}\frac{1}{z_0 - z_1}\sum_{k=0}^\infty z^k\left(z_0^{k+1} - z_1^{k+1}\right)\right) \nonumber\\
@@ -148,6 +149,8 @@ For the the residue at $z=0$, we use \eqref{eq:pole_identity3} and \eqref{eq:res
 	&=& \lim_{z\rightarrow z_0} \left(\frac{1}{z_0 - z_1}\left(z_0^{n} - z_1^{n}\right)\right) \nonumber\\
 	&=& \frac{\left(z_0^{n} - z_1^{n}\right)}{z_0 - z_1}
 \end{IEEEeqnarray}
+
+
 
 Finally, use \eqref{eq:pole_identity1} and \eqref{eq:pole_identity2} for the total overall solution:
 
