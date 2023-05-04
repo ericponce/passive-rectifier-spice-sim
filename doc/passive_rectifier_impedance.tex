@@ -14,9 +14,14 @@
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
 
+\usepackage{ragged2e}
+
+\usepackage{tikz}
+
+
 \geometry{
     textheight=9in,
-    textwidth=6.5in,
+    textwidth=6in,
     top=1in,
     headheight=12pt,
     headsep=25pt,
@@ -29,6 +34,32 @@
 \newcommand{\cancelRed}[1]{\textcolor{red}{\cancel{\textcolor{black}{#1}}}}
 \newcommand{\cancelToOne}[1]{\textcolor{red}{\cancelto{1}{\textcolor{black}{#1}}}}
 \newcommand{\cancelToZero}[1]{\textcolor{red}{\cancelto{0}{\textcolor{black}{#1}}}}
+\newcommand{\cancelToApproxZero}[1]{\textcolor{red}{\cancelto{\approx 0}{\textcolor{black}{#1}}}}
+
+
+\newcommand\eqnarraycomment[2][4.5cm]{\parbox[t]{#1}{\RaggedRight #2}}
+
+\DeclareMathOperator{\sign}{sgn}
+
+% center, y0, y1
+\newcommand{\drawposregion}[3]{
+	\draw[color=black, fill=black!20]  
+	  		plot ({#1 + 0.5 + 0.25*cos((3.14159*((#3 - #2)*\x + #2) r)}, {(#3-#2)*\x+#2})
+	  		-- ({#1 - 0.5 - 0.25*cos(( 3.14159 * #3 ) r) }, #3)
+	  		plot ({#1 - 0.5 - 0.25*cos(-3.14159*(#3 - (#3-#2)*\x) r)}, {#3 - (#3-#2)*\x})
+	  		-- ({#1 + 0.5 + 0.25*cos((3.14159*#2 ) r)}, #2);
+}
+
+% x0, x1, y0, y1
+\newcommand{\drawsquare}[4]{
+	\draw (#1, #3)
+		-- (#1, #4)
+		-- (#2, #4)
+		-- (#2, #3);
+
+	\draw[dashed] (#1, #4+0.2) -- (#1, -0.2);
+	\draw[dashed] (#2, #4+0.2) -- (#2, -0.2);
+}
 
 \begin{document}
 
@@ -91,57 +122,185 @@ The basic model is shown below:
 \caption{ac-side Impedance Test Circuit.}
 \end{figure}
 
-
-% \begin{figure}[htbp]
-% \center
-% \begin{circuitikz}
-% 	\draw (2, 0) node[ground]{};
-% 	\draw (2, 0) -- ++(-2, 0)
-% 		to[vsource, v=$V_T$] ++(0, 2)
-% 		to[vsourcesin, v=$v_t$] ++(0, 2) -- ++(4, 0)
-% 		to[generic,l=P] ++(0, -4) -- ++(-2, 0);
-% \end{circuitikz}
-% \caption{ac-side Impedance Test Circuit.}
-% \end{figure}
-
-Cite Sun Papers
-
-\newpage
-
 \section{Small Signal Impedance for Continuous Conduction and Linear Loads}
 
 Let $v_{AC}$ be defined by the following time series and fourier series:
 \begin{IEEEeqnarray}{rCl}
-	v_{AC}(t) &=& V_L\cos(2\pi f_L t) + v_p \cos(2\pi f_P t) \\
+	v_{AC}(t) &=& V_L\cos(2\pi f_L t) + v_p \cos(2\pi f_P t + \phi_P) \\
 	v_{AC}[f] &=& \begin{cases}
 					\frac{V_L}{2} \quad & \mathrm{for} \, f=\pm f_L \\
-					\frac{v_p e^{j\phi_p}}{2} \quad & \mathrm{for} \, f=\pm f_P
+					\frac{v_p e^{j\phi_P}}{2} \quad & \mathrm{for} \, f=\pm f_P
 				\end{cases}
 \end{IEEEeqnarray} 
 
 Let $m(t)$ be a modulating or mixing signal that is 1 during the positive half cycle and -1 during the negative half-cycle such that:
 \begin{IEEEeqnarray}{rCl}
-	v_{DC}(t) = v_{AC}(t) \cdot m(t), \\
-	i_{AC}(t) = i_{DC}(t) \cdot m(t).
+	v_{DC}(t) = v_{AC}(t) \cdot m(t), \label{eq:mixing_step1}\\
+	i_{AC}(t) = i_{DC}(t) \cdot m(t). \label{eq:mixing_step2}
 \end{IEEEeqnarray}
 \textbf{This implicitly assumes that the full-wave rectifier is continuously conducting.}
 
-The original mixing signal $m_0(t)$ may be defined by zero crossing points:
+\subsection{Mixing Signal Derivation}
+There are are many ways to derive the perturbed mixing signal, and then to compute its fourier series.
+Here we present one that uses double fourier analysis along with a \textbf{small signal pproximation}.
+
+\subsubsection{Double Fourier Integral Approach}
+In a non-commutated continuous conduction case, the mixing signal can be defined as
+\begin{equation}
+	m(t) = \sign\left(v_{AC}(t)\right).
+\end{equation}
+
+It can be rewritten the mixing function as a paramteric equation of two functions $x(t)$ and $y(t)$
 \begin{IEEEeqnarray}{rCl}
-	\left(T_{2k}^0, T_{2k+1}^0\right) &=& \left(\frac{1+4k}{4f_L}, \frac{3+4k}{4f_L}\right).
+m(t) &=& \sign\left(v_{AC}(t)\right) \nonumber\\
+	 &=& \sign\left(V_L\cos(x(t)) + v_p\cos(y(t))\right),
+\end{IEEEeqnarray}
+where $x(t) = 2\pi f_L t$ and $y(t) = 2\pi f_P t + \phi_P$.
+
+This modulation may be visualized as a set of unit cells that repeat in both directions forever.
+Onto this space composed of unit cells we can superimpose the solution trajectory to arrive at
+the square wave we expect. 
+The solution trajectory is found by substituting the inverse of $x(t)$ into $y(t)$:
+\begin{IEEEeqnarray}{rCl}
+	t &=& \frac{x}{2\pi f_L} \nonumber\\
+	y &=& \frac{f_P}{f_L} x + \phi_p
 \end{IEEEeqnarray}
 
-The change in zero crosing point may be determined through small signal analysis:
+The bounds of the shaded region of the unit cell are found by solving for the zero-crossing
 \begin{IEEEeqnarray}{rCl}
-	v_{AC}(T_k^0 + \Delta t_k) \approx v_AC(T_k^0) + \left.\frac{\partial v_{AC}}{\partial t}(t)\right\vert_{t=T_k^0}
+	0 &=& v_{AC}(t) \nonumber\\
+	0 &=& V_L\cos(x) + v_p \cos(y) \nonumber\\
+	x &=& 2 n \pi \pm \arccos (-\frac{v_p}{V_L} \cos y) \quad \forall \, n \in \mathbb{Z} 
 \end{IEEEeqnarray}
 
+The unit cell is shown in \figurename ~\ref{fig:double_fourier_unit_cell} and the process by which it maps to $m(x,y)$ is shown in \figurename ~\ref{fig:double_fourier_mapping}
+\begin{figure}[htbp]
+    \center
+	\begin{tikzpicture}[domain=0:1, scale=2]
+		% shaded region
+		\drawposregion{0}{-1}{1}
+		% grid
+		\draw[very thin,color=gray] (-1,-1) grid (1,1);
+		% axes
+		\draw[<->, very thick] (-1.2, 0) node[below]{$-\pi$} 
+			-- (1.2, 0) node[right] {$x(t)=2\pi f_L t$} node[below] {$\pi$};
+		\draw[<->, very thick] (0, -1.2) node[above left]{$-\pi$}
+			-- (0, 1.2) node[above] {$y(t)=2\pi f_P t + \phi_p$} node[below left] {$\pi$};
+		% annotations
+		\draw (-0.75, -0.75) node[]{$-1$};
+		\draw (+0.75, -0.75) node[]{$-1$};
+		\draw (-0.25, +0.25) node[fill=white]{$1$};
+	\end{tikzpicture}
+    \caption{Unit Cell for Double Fourier Integral Analysis. The shaded region represents a 1 and the unshaded regions represent a -1, as shown.}
+    \label{fig:double_fourier_unit_cell}
+\end{figure}
+
+
+
+\begin{figure}[htbp]
+    \center
+	\begin{tikzpicture}[domain=0:1, scale=1.5]
+		%% upper half
+		% shaded regions
+		\drawposregion{0}{0}{2}
+		\drawposregion{2}{0}{2}
+		\drawposregion{4}{0}{2}
+		\drawposregion{6}{0}{2}
+
+		\draw[very thin,color=gray] (-1,0) grid (7,2);
+		
+		% axis
+		\draw[->, very thick] (-1, 0)  
+			-- (7.2, 0) node[right] {$x$} node[below=0.1cm] {$7\pi$};
+		\draw[->, very thick] (0, 0) node[below]{0}
+			-- (0, 2.2) node[above] {$y$} node[left] {$2\pi$};
+
+		% sloped line
+		\draw[->] (-1, -0.1) -- (7, 0.7) node[right,fill=white]{$y = \frac{f_P}{f_L} x + \phi_p$};
+
+		% annotations
+		\draw (-0.75, +0.65) node[]{$-1$};
+		\draw (+0.75, +0.65) node[]{$-1$};
+		\draw (-0.25, +0.25) node[fill=white]{$1$};
+
+		%% lower half
+
+		% square wave
+		\drawsquare{{-0.5 - 0.25*cos((3.14159 * (0+-0.055)) r) }}
+				   {{ 0.5 + 0.25*cos((3.14159 * (0+0.055)) r) }}
+				   {-2}{-2+0.75}
+
+		\drawsquare{{1.5 - 0.25*cos((3.14159 * (0.2+-0.055)) r) }}
+				   {{2.5 + 0.25*cos((3.14159 * (0.2+0.055)) r) }}
+				   {-2}{-2+0.75}
+
+		\drawsquare{{3.5 - 0.25*cos((3.14159 * (0.4+-0.055)) r) }}
+				   {{4.5 + 0.25*cos((3.14159 * (0.4+0.055)) r) }}
+				   {-2}{-2+0.75}
+
+		\drawsquare{{5.5 - 0.25*cos((3.14159 * (0.6+-0.055)) r) }}
+				   {{6.5 + 0.25*cos((3.14159 * (0.6+0.055)) r) }}
+				   {-2}{-2+0.75}
+
+		% axis
+		\draw[->, very thick] (-1, -2)  
+			-- (7.2, -2) node[right] {$x$};
+		\draw[->, very thick] (-1, -2)
+			-- (-1, -2 + 1.2) node[above,fill=white] {$m(x,y)$};
+	\end{tikzpicture}
+    \caption{Mapping of Unit Cell to $m(x,y)$ by solution trajectory $y = \frac{f_P}{f_L} x + \phi_p$.}
+    \label{fig:double_fourier_mapping}
+\end{figure}
+
+If we \textbf{use a small signal approximation} of $v_p << V_L$, we arrive at bounding functions of
 \begin{IEEEeqnarray}{rCl}
-	v_{AC}(t) &\approx& v_AC(T_k^0) + \left.\frac{\partial v_{AC}}{\partial t}(t)\right\vert_{t=T_k^0} (t-T_k^0)  \nonumber\\
+	x &=& 2 \pi n \pm \arccos (-\frac{v_p}{V_L} \cos y) \quad \forall \, n \in \mathbb{Z} \nonumber\\
+	&\approx& 2 \pi n \pm \frac{\pi}{2}\left(1 + M \cos y\right),
+\end{IEEEeqnarray}
+where $M=\frac{2}{\pi}\frac{v_p}{V_L}$
+
+Double Fourier integral analysis allows us to decompose $m(t)$ into a sum of orthogonal sinusoids as \cite[Chapter~3]{holmes_2003}:
+\begin{IEEEeqnarray}{rCl}
+	m(t) = \frac{A_{00}}{2} &+& \sum_{n=1}^{\infty} \left[ A_{0n} \cos(ny) + B_{0n} \sin(ny) \right] \nonumber\\
+	&+& \sum_{m=1}^{\infty} \left[ A_{m0} \cos(mx) + B_{m0} \sin(mx) \right] \nonumber\\
+	&+& \sum_{m=1}^{\infty} \sum_{n\ne0}^{} \left[A_{mn} \cos(mx +ny) + B_{mn} \sin(mx +ny) \right] \\
 \end{IEEEeqnarray}
 
+The coefficiencts of the of this problem is presented in past work\cite[Chapter~3]{holmes_2003}:
 \begin{IEEEeqnarray}{rCl}
-	Y_{ac}(s) &=& \frac{4}{\pi^2} \sum_{m} \left( \frac{1}{(2m+1)^2} Y_{dc}(s+j2\pi(2m+1)f_L) - \frac{1}{4m^2-1}Y_{dc}(j4\pi m f_L)\right)
+	A_{00} &=& 0 \\
+	A_{0n} &=& \begin{cases}
+					M \quad & \mathrm{for} \, n=1 \\
+					0 \quad & \mathrm{otherwise}
+				\end{cases} \\
+	A_{mn} &=& \frac{4}{\pi} \frac{1}{m} J_n\left(m \frac{\pi}{2} M\right) \sin\left([m+n]\frac{\pi}{2}\right) \\
+	B_{nm} &=& 0
+\end{IEEEeqnarray}
+
+To further simplify $A_{mn}$ we can, again, employ a \textbf{small signal approximation} on the Bessel Function of the first kind \eqref{eq:bessel_approx}
+\begin{IEEEeqnarray}{rCL}
+A_{mn} &=& \frac{4}{\pi} \frac{1}{m} J_n\left(m \frac{\pi}{2} M\right) \sin\left([m+n]\frac{\pi}{2}\right) \nonumber\\
+	A_{m0} &\approx& \frac{4}{\pi} \frac{1}{m} \sin\left(m\frac{\pi}{2}\right) \\
+	A_{m,\pm1} &\approx& M \sin\left([m\pm n]\frac{\pi}{2}\right) \\
+	A_{m,|n|>1} &\approx& 0
+\end{IEEEeqnarray}
+
+Ultimately this leaves us with:
+\begin{IEEEeqnarray}{rCL}
+m(t) &=& \frac{4}{\pi} \sum_{m=1}^{\infty} (-1)^m \frac{1}{2m-1} \cos((2m-1)x) \nonumber\\
+	 &+& \frac{v_p}{\pi V_L} \sum_{m} \cos(2mx + y)
+\end{IEEEeqnarray}
+
+This spectrum contains the normal harmonics at odd multiples of the grid frequency $f_L$ (as a square wave) but has additional harmonics, all of equal power, at frequencies $2mf_L\pm f_P$. This result is in agreement with \cite{sun_2007}.
+
+\subsection{Mixing Over to DC}
+
+To mix our voltage pertubation over to dc, as in \eqref{eq:mixing_step1}, we use convolution
+
+\subsection{Overall}
+The ac side admittance is:
+\begin{IEEEeqnarray}{rCl}
+	Y_{ac}(s) &=& \frac{4}{\pi^2} \sum_{m} \left( \frac{1}{(2m+1)^2} Y_{dc}(s+j2\pi(2m+1)f_L) - \frac{1}{4m^2-1}Y_{dc}(j4\pi m f_L)\right).
 \end{IEEEeqnarray}
 
 \subsection{Resistive Load}
@@ -225,8 +384,24 @@ Finally, we can find the infinite sum:
 \end{IEEEeqnarray}
 
 \setcounter{equation}{0}
-\section{Second Appendix}
+\section{Bessel Function of the First Kind}
 
+The Bessel Function of the first kind has a series representaion for integer values of $n$ \cite{weisstein_bessel}, shown below for reference:
+\begin{IEEEeqnarray}{rCl}
+	J_n(x) &=& \sum_{k=0}^{\infty} \frac{(-1)^k}{k!(|n|+k)!} \left(\frac{x}{2}\right)^{|n|+2k}
+\end{IEEEeqnarray}
+
+Let $x << 1$, we may then approximate the Bessel Function by eliminating all the terms of $k>0$ leaving us with
+\begin{IEEEeqnarray}{rCl}
+	J_n(x) &=& \frac{1}{|n|!} \left(\frac{x}{2}\right)^{|n|}
+\end{IEEEeqnarray}
+
+Taking this one step further, we can approximate all Bessel Function with $n>1$ as zero, resulting in
+\begin{IEEEeqnarray}{rCl}
+	J_0(x<<1) &\approx& 1 \\
+	J_{\pm1}(x<<1) &\approx& \frac{x}{2} \\
+	J_{n>1}(x<<1) &\approx& 0 \label{eq:bessel_approx}
+\end{IEEEeqnarray}
 
 
 
@@ -253,6 +428,21 @@ Finally, we can find the infinite sum:
 
 % \bibitem{leonard_2014}
 % J.\@ P.\@ Leonard, ``Nonlinear Modeling Of Dc Constant Power Loads With Frequency Domain Volterra Kernels,''Florida State University, 2014.
+
+\bibitem{sun_2007}
+J. Sun and K. J. Karimi. ``Small-Signal Input Impedance Modeling of Line-Frequency Rectifiers,'' \emph{IEEE. Trans. on Aerospace and Electronics Systems}, Vol. 44, Number 4, October, 2008.
+
+\bibitem{bing_2011}
+Z. Bing and J. Sun. ``Frequency-Domain Modeling of Multipulse Converters by Double-Fourier Series Method,'' \emph{IEEE. Trans. on Power Electronics}, Vol. 26, Number 12, December, 2011.
+
+\bibitem{holmes_2003}
+D. G. Holmes, ``Pulse width modulation for power converters: principles and practice,'' IEEE Press, 2003.
+
+
+\bibitem{weisstein_bessel}
+ E. W. Weisstein, ``''Bessel Function of the First Kind,'' MathWorld--A Wolfram Web Resource. https://mathworld.wolfram.com/BesselFunctionoftheFirstKind.html 
+
+
 
 \end{thebibliography}
 % ------------------------------------------------------------------------------
