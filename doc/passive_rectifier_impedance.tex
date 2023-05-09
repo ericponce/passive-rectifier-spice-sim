@@ -18,10 +18,12 @@
 
 \usepackage{tikz}
 
+\usepackage{siunitx}
+
 
 \geometry{
     textheight=9in,
-    textwidth=6in,
+    textwidth=7.5in,
     top=1in,
     headheight=12pt,
     headsep=25pt,
@@ -183,9 +185,9 @@ The unit cell is shown in \figurename ~\ref{fig:double_fourier_unit_cell} and th
 		\draw[very thin,color=gray] (-1,-1) grid (1,1);
 		% axes
 		\draw[<->, very thick] (-1.2, 0) node[below]{$-\pi$} 
-			-- (1.2, 0) node[right] {$x(t)=2\pi f_L t$} node[below] {$\pi$};
+			-- (1.2, 0) node[right] {$x=2\pi f_L t$} node[below] {$\pi$};
 		\draw[<->, very thick] (0, -1.2) node[above left]{$-\pi$}
-			-- (0, 1.2) node[above] {$y(t)=2\pi f_P t + \phi_p$} node[below left] {$\pi$};
+			-- (0, 1.2) node[above] {$y=2\pi f_P t + \phi_p$} node[below left] {$\pi$};
 		% annotations
 		\draw (-0.75, -0.75) node[]{$-1$};
 		\draw (+0.75, -0.75) node[]{$-1$};
@@ -295,10 +297,103 @@ This spectrum contains the normal harmonics at odd multiples of the grid frequen
 
 \subsection{Mixing Over to DC}
 
-To mix our voltage pertubation over to dc, as in \eqref{eq:mixing_step1}, we use convolution
+To mix our voltage pertubation over to dc, as in \eqref{eq:mixing_step1}, we convolve the spectrum of the ac voltage and the mixing signal.
+\begin{equation}
+	\left(\begin{split}
+  		M[f] &= \begin{cases}
+			(-1)^m \frac{2}{(2m-1)\pi} \quad & \mathrm{for} \, f=(2m+1)f_L \\
+			(-1)^m \frac{v_pe^{\pm j \phi_P}}{\pi V_L} \quad & \mathrm{for} \, f= 2mf_L\pm f_P
+    	\end{cases}
+  	\end{split}\right)
+\quad\ast\quad
+	\left(\begin{split}
+    	V_{ac}[f] &= \begin{cases}
+			\frac{V_L}{2} \quad & \mathrm{for} \, f=\pm f_L \\
+			\frac{v_p e^{j\phi_P}}{2} \quad & \mathrm{for} \, f=\pm f_P
+    	\end{cases}
+  	\end{split}\right) \nonumber
+\end{equation}
 
-\subsection{Overall}
-The ac side admittance is:
+The solution is summarized below\cite{sun_2007}:
+\begin{figure}[ht]
+	\centering
+	\def\arraystretch{2}
+	\begin{tabular}{c c c}
+	\hline
+	f [\si{\hertz}] 		& $V_d[f]$											& Source \\
+	\hline
+	$(2m+1)f_L\pm f_L$ 		& $(-1)^m \frac{V_L}{(2m+1)\pi}$					& $m[(2m+1)f_L]$, $v_{ac}[\pm f_L]$ \\
+	$(2m+1)f_L\pm f_P$ 		& $(-1)^m \frac{v_pe^{\pm j \phi_P}}{(2m+1)\pi}$			& $m[(2m+1)f_L]$, $v_{ac}[\pm f_L]$ \\
+	$2mf_L\pm f_P \pm f_L$ 	& $(-1)^m \frac{v_pe^{\pm j \phi_P}}{(2\pi}$	& $m[2mf_L\pm f_P]$, $v_{ac}[\pm f_L]$ \\
+	$2mf_L$			 		& $(-1)^m \frac{\cancelToZero{v_p^2}}{2\pi V_L}$					& $m[2mf_L\pm f_P]$, $v_{ac}[\pm f_P]$ \\
+	$2mf_L\pm 2f_P$ 		& $(-1)^m \frac{\cancelToZero{v_p^2}e^{\pm j2\phi_P}}{2\pi V_L}$	& $m[2mf_L\pm f_P]$, $v_{ac}[\pm f_P]$ \\
+	\end{tabular}
+\end{figure}
+
+The \textbf{small signal approximation} allows us to approximate $v_p^2$ as zero.
+
+\subsection{Computing the DC Response}
+
+This analysis \textbf{assumes an linear time invariant DC load} such that the current and voltage relationship can be defined by an admittance as:
+\begin{equation}
+	i_{dc}[f] = Y_{dc}[f] v_{dc}[f]
+\end{equation}
+
+If, for example, we had a constant power load, our relation would instead look like
+\begin{equation}
+	i_{dc}[nf] = Y_{dc}[f] v_{dc}[f] \frac{P}{2^{n-1}V_T^{n+1}},
+\end{equation}
+that is, the constant power load would inject a dc current as well as harmonics at integers multiples of the pertubation frequency
+
+\subsection{Mixing Back to AC}
+The equation for mixing the currents back to the ac side is
+\begin{equation}
+	i_{ac}[f] = \sum_k M[k] i_{dc}[f - k].
+\end{equation}
+
+We care about $i_{ac}[\pm f_P]$, of which only a few terms are nonzero:
+\begin{IEEEeqnarray}{rCl}
+	i_{ac}[\pm f_P] &=& M[(2m+1)f_L] i_{dc}[\pm f_P - (2m+1)f_L] \nonumber\\
+	&+& M[2mf_L\pm f_P] i_{dc}[\pm f_P - (2mf_L\pm f_P)] \nonumber\\
+\end{IEEEeqnarray}
+
+We can check these terms to see if there is a corresponding dc-side current on a linear load
+\begin{IEEEeqnarray}{rClr}
+\pm f_P - (2m+1)f_L 		&=& (2k+1)f_L \pm f_L \qquad& \text{no solution} \\
+\pm f_P - (2m+1)f_L 		&=& (2k+1)f_L \pm f_P \qquad& k = -m-1 \label{eq:ac_side_convolution1}\\
+\pm f_P - (2m+1)f_L 		&=& 2kf_L \pm f_P \pm f_L \qquad& k=-m-1,-m \label{eq:ac_side_convolution2}\\
+\hline \nonumber\\
+\pm f_P - (2mf_L\pm f_P) 	&=& (2k+1)f_L \pm f_L \qquad& k=-m-1,-m \label{eq:ac_side_convolution3}\\
+\pm f_P - (2mf_L\pm f_P) 	&=& (2k+1)f_L \pm f_P \qquad& \text{no solution} \\
+\pm f_P - (2mf_L\pm f_P) 	&=& 2kf_L \pm f_P \pm f_L \qquad& \text{no solution}
+\end{IEEEeqnarray}
+
+\eqref{eq:ac_side_convolution1}, \eqref{eq:ac_side_convolution2}, and \eqref{eq:ac_side_convolution3} will produce terms at $\pm f_P$ on the ac side. 
+
+\eqref{eq:ac_side_convolution1} shows us that we must multiply $M[(2m+1)f_L]$ by $i_{dc}[(2k+1)f_L \pm f_P]$ when $k=-m-1$ to produce:
+\begin{IEEEeqnarray}{rCl}
+	i_{ac,0} &=& \sum_m M[(2m+1)f_L] \cdot i_{dc}[(2k+1)f_L \pm f_P] \Bigr|_{k=-m-1} \nonumber\\
+	&=& \sum_m (-1)^{m}\frac{2}{(2m+1)\pi} \left((-1)^{-m-1} \frac{v_p e^{\pm j \phi_P}}{(-2m-1)\pi} Y_{dc}[(-2m-1)f_L\pm f_P]\right)  \nonumber\\
+	&=& \frac{v_p e^{\pm j \phi_P}}{\pi^2} \sum_m \frac{2}{(2m+1)^2} Y_{dc}[-(2m+1)f_L\pm f_P] 
+\end{IEEEeqnarray}
+
+Similarly, \eqref{eq:ac_side_convolution2} produces
+\begin{IEEEeqnarray}{rCCl}
+	i_{ac,1} &=&& \sum_m M[(2m+1)f_L] \cdot i_{dc}[2kf_L \pm f_P \pm f_L] \Bigr|_{k=-m,-m-1} \nonumber\\
+	&=&& \sum_m (-1)^{m}\frac{2}{(2m+1)\pi} \left( (-1)^{-m} \frac{v_pe^{\pm j \phi_P}}{2\pi}Y_{dc}[-2mf_L \pm f_P - f_L] \right. \nonumber\\
+	&&+& \left. (-1)^{-m-1} \frac{v_pe^{\pm j \phi_P}}{2\pi}Y_{dc}[-2(m+1)f_L \pm f_P + f_L] \right) \nonumber\\
+	&=&& 0 %Y_{dc}[-(2m+1)f_L \pm f_P],
+\end{IEEEeqnarray}
+and \eqref{eq:ac_side_convolution3} produces
+\begin{IEEEeqnarray}{rCCl}
+	i_{ac,2} &=&& \sum_m M[2mf_L\pm f_P] \cdot i_{dc}[(2k+1)f_L \pm f_L] \Bigr|_{k=-m,-m-1} \nonumber\\
+	&=&& \sum_m (-1)^m \frac{v_pe^{\pm j \phi_P}}{\pi V_L} \left((-1)^{-m} \frac{V_L}{(-2m+1)\pi} Y_{dc}[-(2m-1)f_L - f_L] \right. \nonumber\\
+	&&+& \left. (-1)^{-m-1} \frac{V_L}{(-2m-1)\pi}Y_{dc}[-(2m+1)f_L + f_L]\right)\nonumber\\
+	&=&& \sum_m \frac{v_pe^{\pm j \phi_P}}{\pi^2} \left(\frac{1}{(-2m+1)} + \frac{1}{(2m+1)}\right) Y_{dc}[-2mf_L] \nonumber\\
+	&=&& \sum_m \frac{v_pe^{\pm j \phi_P}}{\pi^2} \frac{2}{(1-4m^2)} Y_{dc}[-2mf_L]
+\end{IEEEeqnarray}
+
+Combinging the terms, we arrive at
 \begin{IEEEeqnarray}{rCl}
 	Y_{ac}(s) &=& \frac{4}{\pi^2} \sum_{m} \left( \frac{1}{(2m+1)^2} Y_{dc}(s+j2\pi(2m+1)f_L) - \frac{1}{4m^2-1}Y_{dc}(j4\pi m f_L)\right).
 \end{IEEEeqnarray}
@@ -327,7 +422,9 @@ Amplitude modulation may be written as the sum of two sidebands as follows:
 An important term in the mixing signal used in small signal impedance modeling is the result of conduction angle modulation.
 That is, cycle to cycle variations in 
 
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Conclusion %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Conclusion}
 
 % \begin{figure}[htbp]
@@ -338,6 +435,9 @@ That is, cycle to cycle variations in
 % \end{figure}
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Appendix %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \setcounter{section}{0}
 \renewcommand\thesection{\Alph{section}}
