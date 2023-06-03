@@ -61,6 +61,11 @@ def get_voltage_and_current(model, interpolate_dt=None):
 
     return t, vac, iac, vdc, idc
 
+def get_minimum_timestep(model):
+    ltr = read_raw_file(model)
+    t = np.abs(ltr.get_trace('time').get_wave())
+    return np.min(np.diff(t))
+
 def extract_mixing_signal(model, interpolate_dt=None):
     ltr = read_raw_file(model)
     t = np.abs(ltr.get_trace('time').get_wave())
