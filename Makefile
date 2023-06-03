@@ -81,6 +81,7 @@ make_output_dir :
 
 
 clean :
+	rm *.gen *.$(RAW_EXT) *.$(LOG_EXT) *.$(NET_EXT) *.$(OP_RAW_EXT)
 	rm $(OUT_DIR_F)*.$(RAW_EXT)
 	rm $(OUT_DIR_F)*.$(LOG_EXT)
 	rm $(OUT_DIR_F)*.$(NET_EXT)
