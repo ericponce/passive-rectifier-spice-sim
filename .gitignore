@@ -1,5 +1,6 @@
 # Project specific
 *.gen
+*.gen_
 
 # Pictures
 *.png

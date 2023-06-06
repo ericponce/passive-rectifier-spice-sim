@@ -6,8 +6,64 @@ from scipy import signal
 ##############################################################################
 
 def LL_Idc(freqs, vals, Y_tf):
-	return vals * signal.freqresp(Y_tf, freqs)[1]
+    return vals * signal.freqresp(Y_tf, freqs)[1]
 
+# for the resistive case, it is pretty important that you have many harmonics!
+def LL_Yac(Ydc_tf, w_stop, num_w, w_mix, order=3, retYdc=True):
+    w_start_adj = -w_stop - (2 * order + 1) * w_mix
+    w_stop_adj = w_stop + (2 * order + 1) * w_mix
+    num_w_adj = int(num_w *(1 + (2 * order + 1) * w_mix / w_stop))
+    num_w_adj += (1 if num_w_adj % 2 == 1 else 0)
+
+    w = np.linspace(0, w_stop_adj, num_w_adj//2, endpoint=False)
+    w = np.concatenate((np.flip(-w[1:]), w))
+
+    Nf = len(w)
+    _, Ydc = signal.freqresp(Ydc_tf, w)
+
+    mix1_idx = np.argmin(np.abs(w - w_mix))
+    roll = mix1_idx - Nf // 2
+
+    Yac = np.zeros_like(Ydc)
+
+    for i in range(order):
+        # component from conduction angle modulation
+        # sum Ydc(2nf_mix)*-1/(4n^2-1) from n=-inf to inf
+        # first order = Ydc[0]; m = 0
+        # second order = Ydc[0] - 1/3 (Ydc[2f_mix] + Ydc[-2f_mix]); m= +-1
+        if i == 0:
+            comp = (Ydc[Nf // 2]) # why does putting abs here this help pfc
+        else:
+            pidx = Nf // 2 + 2 * i * roll
+            nidx = Nf // 2 - 2 * i * roll
+            comp = -1 / (4 * i**2 - 1) * (Ydc[pidx] + Ydc[nidx])
+
+
+        # components from mixing signal
+        # sum 1/(2i+1)^2(Ydc[f - (2m+1)f_mix] + Ydc[f + (2m+1)f_mix]) from m=-inf to inf
+        # first order (m = 0, -1) = Ydc[f-f_mix] + Ydc[f+f_mix]
+        # second order (m = -2, 1) = f.o. + 1/3^2(Ydc[f+3f_mix] + Ydc[f-3f_mix])
+        plus = np.roll(Ydc, -(2*i + 1) * roll) / (2*i + 1)**2
+        minus = np.roll(Ydc, (2*i + 1) * roll) / (2*i + 1)**2 ###### wrong i #######
+
+        Yac += comp + plus + minus
+
+    Yac *= (4 / np.pi**2)
+
+
+    # cleanup
+    w_stop1_idx = np.argmin(np.abs(w - (-w_stop)))
+    w_stop2_idx = np.argmin(np.abs(w - w_stop))
+
+    sl = slice(w_stop1_idx, w_stop2_idx)
+    w = w[sl]
+    Ydc = Ydc[sl]
+    Yac = Yac[sl]
+
+    if retYdc:
+        return w, Ydc, Yac
+    else:
+        return w, Ydc
 
 ##############################################################################
 #                            Constant Power Loads		     		         #
@@ -19,153 +75,312 @@ bias - Bias Voltage (V)
 level - Pertubation Voltage (V)
 """
 def CPL_FourierTerm(n, power, bias, level):
-	
-	A = np.sqrt(bias**2 - level**2)
-	res = power * level**n
-	res /= A * (bias + A)**n
-	res *= (-1)**n
-	res *= np.where(n > 0, 2*np.ones_like(n), 1*np.ones_like(n))
-	return res
+    A = np.sqrt(bias**2 - level**2)
+    res = power * level**n
+    res /= A * (bias + A)**n
+    res *= (-1)**n
+    res *= np.where(n > 0, 2*np.ones_like(n), 1*np.ones_like(n))
+    return res
 
 # Assumes collected terms
 # [TODO] Can't use small signal assumption because some of the vdc terms are not small signals!!
 # [TODO] For very large inputs (like harmonic terms in Vdc), the solution is also not reasonable
 def CPL_Idc(freqs, Vdc, power, bias, smallsignal=True):
-	# Double the input terms (except DC)
-	vals = 2 * Vdc
-	vals[freqs == 0] /= 2
+    # Double the input terms (except DC)
+    vals = 2 * Vdc
+    vals[freqs == 0] /= 2
 
-	Y = power / bias**2
+    Y = power / bias**2
 
-	if smallsignal:
-		# n = 0 term is Y * V_T = Y * vals[f=0*i]
-		# n = 1 term is Y * V_T * 2 / (2 * V_T) * vals[i] = Y * vals[i]
-		# n > 2 terms will be added later
-		idc = -vals * Y
-	else:
-		idc = np.zeros_like(Vdc)
-		idc[freqs == 0] = power / np.sqrt(bias**2 - np.sum(vals[freqs != 0]**2))
-		idc[freqs != 0] = 2 * power / np.sqrt(bias**2 - vals[freqs != 0]**2) 
-		idc[freqs != 0] /= -bias/vals[freqs != 0] - np.sqrt((bias/vals[freqs != 0])**2 - 1)
-		# print((-bias/vals[freqs != 0]-np.sqrt((bias/vals[freqs != 0])**2 - 1)))
+    if smallsignal:
+        # n = 0 term is Y * V_T = Y * vals[f=0*i]
+        # n = 1 term is Y * V_T * 2 / (2 * V_T) * vals[i] = Y * vals[i]
+        # n > 2 terms will be added later
+        idc = -vals * Y
+    else:
+        idc = np.zeros_like(Vdc)
+        idc[freqs == 0] = power / np.sqrt(bias**2 - np.sum(vals[freqs != 0]**2))
+        idc[freqs != 0] = 2 * power / np.sqrt(bias**2 - vals[freqs != 0]**2) 
+        idc[freqs != 0] /= -bias/vals[freqs != 0] - np.sqrt((bias/vals[freqs != 0])**2 - 1)
+        # print((-bias/vals[freqs != 0]-np.sqrt((bias/vals[freqs != 0])**2 - 1)))
 
-		# print(np.sqrt((bias/vals[freqs != 0])**2 - 1))
+        # print(np.sqrt((bias/vals[freqs != 0])**2 - 1))
 
-	# print(bias) 
-	# print(vals)
-	print(idc)
+    # print(bias) 
+    # print(vals)
+    print(idc)
 
-	max_f = np.max(freqs)
+    max_f = np.max(freqs)
 
-	for i, f in enumerate(freqs):
-		n = 2
-		while np.abs(n*f) < max_f and f != 0:
-			# if freqs contains n*f, add some more current
-			# print(np.where(freqs == n * f), n, f, n*f)
-			# print(freqs)
-			# print(len(np.where(freqs == n * f)))
-			idx = np.where(freqs == n * f)[0]
-			if len(idx) > 0:
-				idx = idx[0]
-				if smallsignal:
-					adderand = 2 * Y * bias * (-vals[i] / (2 * bias)) ** n
-				else:
-					adderand = 2 * power / np.sqrt(bias**2 - vals[i]**2) * (-bias/vals[i]-np.sqrt((bias/vals[i])**2 - 1)) ** -n
-				print("hit, (f=%d)*(n=%d)=%f: i(v=%f,n=%d)=%f+%f" % (f, n, freqs[idx], vals[i], n, idc[idx],  adderand))
-				idc[idx] += adderand
+    for i, f in enumerate(freqs):
+        n = 2
+        while np.abs(n*f) < max_f and f != 0:
+            # if freqs contains n*f, add some more current
+            # print(np.where(freqs == n * f), n, f, n*f)
+            # print(freqs)
+            # print(len(np.where(freqs == n * f)))
+            idx = np.where(freqs == n * f)[0]
+            if len(idx) > 0:
+                idx = idx[0]
+                if smallsignal:
+                    adderand = 2 * Y * bias * (-vals[i] / (2 * bias)) ** n
+                else:
+                    adderand = 2 * power / np.sqrt(bias**2 - vals[i]**2) * (-bias/vals[i]-np.sqrt((bias/vals[i])**2 - 1)) ** -n
+                print("hit, (f=%d)*(n=%d)=%f: i(v=%f,n=%d)=%f+%f" % (f, n, freqs[idx], vals[i], n, idc[idx],  adderand))
+                idc[idx] += adderand
 
-			n += 1
+            n += 1
 
-	# halve the output values (except DC)
-	idc[freqs != 0] /= 2
-	return idc
+    # halve the output values (except DC)
+    idc[freqs != 0] /= 2
+    return idc
 
 # Controllable Bandwidth CPL
 def CBCPL_Idc(cutoff, Ydc_tf, freqs, Vdc, power, bias, smallsignal=True):
-	max_f = np.max(freqs)
-	Y = power / bias**2
+    max_f = np.max(freqs)
+    Y = power / bias**2
 
-	filter = signal.TransferFunction([0, 1], [1/cutoff, 1])
-	filteredVdc = Vdc * signal.freqresp(filter, freqs)[1]
+    filter = signal.TransferFunction([0, 1], [1/cutoff, 1])
+    filteredVdc = Vdc * signal.freqresp(filter, freqs)[1]
 
-	# n = 0 and n = 1 terms
-	vals = 2 * Vdc # Double the input terms (except DC)
-	vals[freqs == 0] /= 2
-	idc = -vals * signal.freqresp(Ydc_tf, freqs)[1]
+    # n = 0 and n = 1 terms
+    vals = 2 * Vdc # Double the input terms (except DC)
+    vals[freqs == 0] /= 2
+    idc = -vals * signal.freqresp(Ydc_tf, freqs)[1]
 
-	# n > 2 terms, controllable bandwidth
-	vals = 2 * filteredVdc
-	for i, f in enumerate(freqs):
-		n = 2
-		while np.abs(n*f) < max_f and f != 0:
-			idx = np.where(freqs == n * f)[0]
-			if len(idx) > 0:
-				idx = idx[0]
-				adderand = 2 * Y * bias * (-vals[i] / (2 * bias)) ** n
-				if np.abs(adderand) > 1e-6:
-					print("hit, (f=%d)*(n=%d)=%f: i(v=%f,n=%d)=%f+%f" % (f, n, freqs[idx], vals[i], n, idc[idx],  adderand))
-					print(np.abs(vals[i]), 2 * Vdc[i])
-				idc[idx] += adderand
+    # n > 2 terms, controllable bandwidth
+    vals = 2 * filteredVdc
+    for i, f in enumerate(freqs):
+        n = 2
+        while np.abs(n*f) < max_f and f != 0:
+            idx = np.where(freqs == n * f)[0]
+            if len(idx) > 0:
+                idx = idx[0]
+                adderand = 2 * Y * bias * (-vals[i] / (2 * bias)) ** n
+                if np.abs(adderand) > 1e-6:
+                    print("hit, (f=%d)*(n=%d)=%f: i(v=%f,n=%d)=%f+%f" % (f, n, freqs[idx], vals[i], n, idc[idx],  adderand))
+                    print(np.abs(vals[i]), 2 * Vdc[i])
+                idc[idx] += adderand
 
-			n += 1
+            n += 1
 
-	# halve the output values (except DC)
-	idc[freqs != 0] /= 2
-	return idc
+    # halve the output values (except DC)
+    idc[freqs != 0] /= 2
+    return idc
+
+def CBCPL_SimpleYac(Ydc_tf, w_stop, num_w, w_mix, order=3, retYdc=True):
+    w_start_adj = -w_stop - (2 * order + 1) * w_mix
+    w_stop_adj = w_stop + (2 * order + 1) * w_mix
+    num_w_adj = int(num_w *(1 + (2 * order + 1) * w_mix / w_stop))
+    num_w_adj += (1 if num_w_adj % 2 == 1 else 0)
+
+    w = np.linspace(0, w_stop_adj, num_w_adj//2, endpoint=False)
+    w = np.concatenate((np.flip(-w[1:]), w))
+
+    Nf = len(w)
+    _, Ydc = signal.freqresp(Ydc_tf, w)
+
+    mix1_idx = np.argmin(np.abs(w - w_mix))
+    roll = mix1_idx - Nf // 2
+
+    Yac = np.zeros_like(Ydc)
+
+    for i in range(order):
+        # component from conduction angle modulation
+        # sum Ydc(2nf_mix)*-1/(4n^2-1) from n=-inf to inf
+        # first order = Ydc[0]; m = 0
+        # second order = Ydc[0] - 1/3 (Ydc[2f_mix] + Ydc[-2f_mix]); m= +-1
+        if i == 0:
+            comp = np.abs(Ydc[Nf // 2]) # DC term is not negative
+        else: # [TODO] figure out what to do here
+            pidx = Nf // 2 + 2 * i * roll
+            nidx = Nf // 2 - 2 * i * roll
+            comp = -1 / (4 * i**2 - 1) * (Ydc[pidx] + Ydc[nidx])
+
+
+        # components from mixing signal
+        # sum 1/(2i+1)^2(Ydc[f - (2m+1)f_mix] + Ydc[f + (2m+1)f_mix]) from m=-inf to inf
+        # first order (m = 0, -1) = Ydc[f-f_mix] + Ydc[f+f_mix]
+        # second order (m = -2, 1) = f.o. + 1/3^2(Ydc[f+3f_mix] + Ydc[f-3f_mix])
+        plus = np.roll(Ydc, -(2*i + 1) * roll) / (2*i + 1)**2
+        minus = np.roll(Ydc, (2*i + 1) * roll) / (2*i + 1)**2 
+
+        Yac += comp + plus + minus
+
+    Yac *= (4 / np.pi**2)
+
+
+    # cleanup
+    w_stop1_idx = np.argmin(np.abs(w - (-w_stop)))
+    w_stop2_idx = np.argmin(np.abs(w - w_stop))
+
+    sl = slice(w_stop1_idx, w_stop2_idx)
+    w = w[sl]
+    Ydc = Ydc[sl]
+    Yac = Yac[sl]
+
+    if retYdc:
+        return w, Ydc, Yac
+    else:
+        return w, Ydc
+    
+def CBCPL_SimpleYac2(Ydc_tf, w_stop, num_w, w_mix, order=3, retYdc=True):
+    w_start_adj = -w_stop - (2 * order + 1) * w_mix
+    w_stop_adj = w_stop + (2 * order + 1) * w_mix
+    num_w_adj = int(num_w *(1 + (2 * order + 1) * w_mix / w_stop))
+    num_w_adj += (1 if num_w_adj % 2 == 1 else 0)
+
+    w = np.linspace(0, w_stop_adj, num_w_adj//2, endpoint=False)
+    w = np.concatenate((np.flip(-w[1:]), w))
+    
+    Nf = len(w)
+    _, Ydc = signal.freqresp(Ydc_tf, w)
+    Ydc[Nf // 2] = np.abs(Ydc[Nf // 2]) # This can never be negative?
+
+    # import matplotlib.pyplot as plt
+    # plt.figure()
+    # plt.subplot(2, 1, 1)
+    # plt.plot(w, np.abs(Ydc))
+    # plt.subplot(2, 1, 2)
+    # plt.plot(w, np.angle(Ydc) * 180 / np.pi)
+    # plt.show()
+
+    mix1_idx = np.argmin(np.abs(w - w_mix))
+    roll = mix1_idx - Nf // 2
+
+    Yac = np.zeros_like(Ydc)
+
+    for i in range(order):
+        # component from conduction angle modulation
+        # sum Ydc(2nf_mix)*-1/(4n^2-1) from n=-inf to inf
+        # first order = Ydc[0]; m = 0
+        # second order = Ydc[0] - 1/3 (Ydc[2f_mix] + Ydc[-2f_mix]); m= +-1
+        
+        if i == 0:
+            comp = Ydc[Nf // 2] # DC term is not negative
+        else:
+            pidx = Nf // 2 + 2 * i * roll
+            nidx = Nf // 2 - 2 * i * roll
+            comp = -1 / (4 * i**2 - 1) * (Ydc[pidx] + Ydc[nidx])
+        # comp = 0 # end up begin zero then Ydc[2mf] = constant
+
+
+        # components from mixing signal
+        # sum 1/(2i+1)^2(Ydc[f - (2m+1)f_mix] + Ydc[f + (2m+1)f_mix]) from m=-inf to inf
+        # first order (m = 0, -1) = Ydc[f-f_mix] + Ydc[f+f_mix]
+        # second order (m = -2, 1) = f.o. + 1/3^2(Ydc[f+3f_mix] + Ydc[f-3f_mix])
+        plus = np.roll(Ydc, -(2*i + 1) * roll) / (2*i + 1)**2
+        minus = np.roll(Ydc, (2*i + 1) * roll) / (2*i + 1)**2 
+
+        Yac += comp + plus + minus
+
+    Yac *= (4 / np.pi**2)
+
+
+    # cleanup
+    w_stop1_idx = np.argmin(np.abs(w - (-w_stop)))
+    w_stop2_idx = np.argmin(np.abs(w - w_stop))
+
+    sl = slice(w_stop1_idx, w_stop2_idx)
+    w = w[sl]
+    Ydc = Ydc[sl]
+    Yac = Yac[sl]
+
+    if retYdc:
+        return w, Ydc, Yac
+    else:
+        return w, Ydc
+
+# Controllable Bandwidth CPL
+def CBCPL_Idc2(cutoff, Ydc_tf, freqs, Vdc, power, bias, smallsignal=True):
+    Ydc = np.abs(signal.freqresp(Ydc_tf, np.array([0]))[1])
+
+    Vdc = Vdc * (1 + 0j)
+
+    filter = signal.TransferFunction([1], [1/cutoff, 1])
+    filteredVdc = Vdc * signal.freqresp(filter, freqs)[1]
+    filteredVdc[freqs == 0] = 0 # elimnate dc term
+
+    # w, mag, phase = signal.bode(filter)
+    # import matplotlib.pyplot as plt
+    # plt.figure()
+    # plt.semilogx(w, mag)    # Bode magnitude plot
+    # plt.figure()
+    # plt.semilogx(w, phase)  # Bode phase plot
+    # plt.show()
+
+    idc = Ydc * (Vdc - 2*filteredVdc)
+
+    # import matplotlib.pyplot as plt
+    # plt.figure()
+    # plt.subplot(2, 1, 1)
+    # plt.plot(freqs, np.abs(Vdc))
+    # plt.plot(freqs, np.abs(filteredVdc), 'r+')
+
+    # ax = plt.twinx()
+    # ax.plot(freqs, np.angle(Vdc))
+    # ax.plot(freqs, np.angle(filteredVdc))
+
+    # plt.subplot(2, 1, 2)
+    # plt.plot(freqs, np.abs(Vdc - 2*filteredVdc))
+
+    # plt.show()
+
+    return idc
 
 ##############################################################################
 #                     Constant Conduction Passive Rectifier		  	       	 #
 ##############################################################################
 def CCPR_Vdc(lineVoltage, lineFrequency, 
-			 pertubationVoltage, pertubationFrequency,
-			 maximumMixingOrder, positiveFrequenciesOnly=True,
-			 combineLikeTerms=True):
+             pertubationVoltage, pertubationFrequency,
+             maximumMixingOrder, positiveFrequenciesOnly=True,
+             combineLikeTerms=True):
 
-	fL = lineFrequency
-	fP = pertubationFrequency
+    fL = lineFrequency
+    fP = pertubationFrequency
 
-	vL = lineVoltage
-	vP = pertubationVoltage
+    vL = lineVoltage
+    vP = pertubationVoltage
 
-	if positiveFrequenciesOnly:
-		m = np.arange(maximumMixingOrder+1)
-	else:
-		m = np.arange(-maximumMixingOrder, maximumMixingOrder+1)
+    if positiveFrequenciesOnly:
+        m = np.arange(maximumMixingOrder+1)
+    else:
+        m = np.arange(-maximumMixingOrder, maximumMixingOrder+1)
 
-	freqs = np.array([])
-	vals = np.array([])
+    freqs = np.array([])
+    vals = np.array([])
 
-	# First Term: M[(2m+1) lineFrequency], Vac[+-lineFrequency]
-	freqs = np.append(freqs, (2 * m + 1) * fL + fL)
-	freqs = np.append(freqs, (2 * m + 1) * fL - fL)
-	vals = np.append(vals, np.tile((-1)**np.abs(m) * vL/(np.pi*(2*m + 1)), 2))
-	
-	# Second Term: M[(2m+1) lineFrequency], Vac[+-pertubationFrequency]
-	freqs = np.append(freqs, (2 * m + 1) * fL + fP)
-	freqs = np.append(freqs, (2 * m + 1) * fL - fP)
-	vals = np.append(vals, np.tile((-1)**np.abs(m) * vP/(np.pi*(2*m + 1)), 2))
+    # First Term: M[(2m+1) lineFrequency], Vac[+-lineFrequency]
+    freqs = np.append(freqs, (2 * m + 1) * fL + fL)
+    freqs = np.append(freqs, (2 * m + 1) * fL - fL)
+    vals = np.append(vals, np.tile((-1)**np.abs(m) * vL/(np.pi*(2*m + 1)), 2))
+    
+    # Second Term: M[(2m+1) lineFrequency], Vac[+-pertubationFrequency]
+    freqs = np.append(freqs, (2 * m + 1) * fL + fP)
+    freqs = np.append(freqs, (2 * m + 1) * fL - fP)
+    vals = np.append(vals, np.tile((-1)**np.abs(m) * vP/(np.pi*(2*m + 1)), 2))
 
-	# Third Term: M[2m*lineFrequency +-pertubationFrequency], Vac[+-fL]
-	freqs = np.append(freqs, 2*m*fL + fP + fL)
-	freqs = np.append(freqs, 2*m*fL + fP - fL)
-	freqs = np.append(freqs, 2*m*fL - fP + fL)
-	freqs = np.append(freqs, 2*m*fL - fP - fL)
-	vals = np.append(vals, np.tile((-1)**np.abs(m) * vP/(2 * np.pi), 4))
+    # Third Term: M[2m*lineFrequency +-pertubationFrequency], Vac[+-fL]
+    freqs = np.append(freqs, 2*m*fL + fP + fL)
+    freqs = np.append(freqs, 2*m*fL + fP - fL)
+    freqs = np.append(freqs, 2*m*fL - fP + fL)
+    freqs = np.append(freqs, 2*m*fL - fP - fL)
+    vals = np.append(vals, np.tile((-1)**np.abs(m) * vP/(2 * np.pi), 4))
 
-	# Fourth Term: M[2m*lineFrequency +-pertubationFrequency], Vac[+-fP]
-	freqs = np.append(freqs, 2*m*fL)
-	vals = np.append(vals, (-1)**np.abs(m) * vP**2/(2 * np.pi * vL))
+    # Fourth Term: M[2m*lineFrequency +-pertubationFrequency], Vac[+-fP]
+    freqs = np.append(freqs, 2*m*fL)
+    vals = np.append(vals, (-1)**np.abs(m) * vP**2/(2 * np.pi * vL))
 
-	# Fifth Term: M[2m*lineFrequency +-pertubationFrequency], Vac[+-fP]
-	freqs = np.append(freqs, 2*m*fL + 2 * fP)
-	freqs = np.append(freqs, 2*m*fL - 2 * fP)
-	vals = np.append(vals, np.tile((-1)**np.abs(m) * vP**2/(2 * np.pi * vL), 2)) # this term is off by ~2 in resistive case
+    # Fifth Term: M[2m*lineFrequency +-pertubationFrequency], Vac[+-fP]
+    freqs = np.append(freqs, 2*m*fL + 2 * fP)
+    freqs = np.append(freqs, 2*m*fL - 2 * fP)
+    vals = np.append(vals, np.tile((-1)**np.abs(m) * vP**2/(2 * np.pi * vL), 2)) # this term is off by ~2 in resistive case
 
-	if combineLikeTerms:
-		freqs, idx = np.unique(freqs, return_inverse=True)
-		vals = np.bincount(idx, weights=vals)
+    if combineLikeTerms:
+        freqs, idx = np.unique(freqs, return_inverse=True)
+        vals = np.bincount(idx, weights=vals)
 
-	return freqs, vals
+    return freqs, vals
 
 if __name__ == "__main__":
-	CCPR_Vdc(120, 60, 1, 7, 3, True)
+    CCPR_Vdc(120, 60, 1, 7, 3, True)
