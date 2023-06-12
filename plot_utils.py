@@ -20,7 +20,7 @@ def plot_delta(ax, x, y, alpha=1.0, linefmt='C0-', basefmt='C3-'):
     ax[1].stem(px, np.angle(py) * 180 / np.pi, bottom=0, linefmt=linefmt, basefmt=basefmt)
 
 # [Note] Could be optimized by having only a single access to the file
-def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max):
+def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max, f_mix=60, incremental=None):
 
     # Get mixing signal from data
     t, mix = sim.extract_mixing_signal(model, interpolate_dt=interpolate_dt)
@@ -51,6 +51,22 @@ def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max):
     sp_idc = np.fft.fftshift(np.fft.fft(idc) / N)
     sp_iac = np.fft.fftshift(np.fft.fft(iac) / N)
 
+    def compute_thd(sp):
+        idx = np.argmin(np.abs(f - f_mix))
+        thd = (2 * sp)
+        V1 = thd[idx]
+        thd[idx] = 0
+        return np.sqrt(np.sum(thd[N//2:]**2)) / V1
+    
+    if incremental is not None:
+        print("incrementing")
+        sp_mix -= incremental[0, :]
+        sp_vdc -= incremental[1, :]
+        sp_idc -= incremental[2, :]
+        sp_vac -= incremental[3, :]
+        sp_iac -= incremental[4, :]
+    
+
     f_sl = slice(np.argmin(np.abs(f + 0)), np.argmin(np.abs(f - f_max)))
     magCutoff = 1e-3
 
@@ -68,6 +84,7 @@ def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max):
 
     axbig0.plot(t, vac)
     axbig0.twinx().plot(t, iac)
+    axbig0.set_title("THD(V)=%.2f%%, THD(I)=%.2f%%" % (100*compute_thd(sp_vac), 100*compute_thd(sp_iac)))
 
     axbig1.plot(t, mix)
 
@@ -104,6 +121,8 @@ def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max):
     sp_idc[f_sl][np.abs(sp_idc[f_sl]) < magCutoff] = 0
     ax[7][1].plot(f[f_sl], 180 / np.pi * np.angle(sp_vdc[f_sl]))
     ax[7][1].plot(f[f_sl], 180 / np.pi * np.angle(sp_idc[f_sl]))
+
+    return np.vstack((sp_mix, sp_vdc, sp_idc, sp_vac, sp_iac))
 
     
 

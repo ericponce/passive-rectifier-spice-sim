@@ -9,6 +9,8 @@ from scipy.integrate import quad
 from scipy import signal
 from scipy import interpolate
 
+from scipy.interpolate import interp1d
+
 import argparse
 
 def print_seperator(title):
@@ -27,7 +29,6 @@ def get_vdc(ltr):
 
 def get_idc(ltr):
     return ltr.get_trace('I(R2)').get_wave()
-
 
 def compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes, fv=get_vac, fi=get_iac, debug=False):
     sp = np.zeros(len(freqs), dtype=np.cdouble)
@@ -157,7 +158,58 @@ def compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes
 
 
         print("\t Done. |Z(%f)|=%f, <Z(%f)=%f" % (f, np.abs(sp[i]), f, np.angle(sp[i])*180/np.pi))
-        # print("\t       |Z(-%f)|=%f, <Z(-%f)=%f" % (f, np.abs(sp_neg), f, np.angle(sp_neg)*180/np.pi))
+    return sp
+
+def compute_incremental_impedance2(model, gen_params, freqs, timestep, fv=get_vac, fi=get_iac):
+    # General Configuration
+    gen_params['timestep'] = timestep
+    gen_params['timestart'] = 0
+    gen_params['timestop'] = 2
+
+    # Allocate Array for final result
+    sp = np.zeros(len(freqs), dtype=np.cdouble)
+
+    print("Beginning unperturbed simulation")
+    Vp = gen_params['Vp'] 
+    gen_params['Vp'] = 0
+    gen_params['fp'] = 0
+    sim.write_param_file(model+'.gen', gen_params)
+    sim.execute_spice(model)
+
+    # Get Data
+    ltrUnperturbed = sim.read_raw_file(model)
+
+    print("Beginning perturbed simulations")
+    for i, f in enumerate(freqs):
+        print("Finding impedance at f=%f, %d of %d" % (f, i, len(freqs)))
+        gen_params['fp'] = f
+        gen_params['Vp'] = Vp
+        sim.write_param_file(model+'.gen', gen_params)
+        sim.execute_spice(model)
+
+        # Get Data
+        ltr = sim.read_raw_file(model)
+
+        # compute complex fourier coefficient of impedance (perturbed and unperturbed)
+        omega = 2 * np.pi * f
+
+        tUnperturbed = ltrUnperturbed.get_trace('time').get_time_axis()
+        tPerturbed = ltr.get_trace('time').get_time_axis()
+
+        slU = slice(np.argmin(np.abs(tUnperturbed-1)) - 1, None)
+        slP = slice(np.argmin(np.abs(tPerturbed-1)) - 1, None)
+
+        tU = tUnperturbed[slU]
+        tP = tPerturbed[slP]
+
+        expU = np.exp(-1j * omega * tU)
+        expP = np.exp(-1j * omega * tP)
+
+        spV = np.trapz(fv(ltr)[slP] * expP, tP) - np.trapz(fv(ltrUnperturbed)[slU] * expU, tU)
+        spI = np.trapz(fi(ltr)[slP] * expP, tP) - np.trapz(fi(ltrUnperturbed)[slU] * expU, tU)
+        sp[i] = spV / spI
+
+        print("\t Done. |Z(%f)|=%f, <Z(%f)=%f" % (f, np.abs(sp[i]), f, np.angle(sp[i])*180/np.pi))
 
     return sp
 
@@ -315,7 +367,7 @@ if __name__ == "__main__":
             'fp':0,
             'transtop':2,
             'transtart':0,
-            'timestep':100e-6,
+            'timestep':50e-6,
             'Vg':100,
             'Vp':1
     }
@@ -532,10 +584,15 @@ if __name__ == "__main__":
     # Analytic Estimation
     print_seperator('Analytical Estimation')
     f_stop = 2500 # will be adjusted to remove edge effects
-    Nf = 100000
-    w, Ydc, Yac = reflect_admittance(Ydc_tf, 2*np.pi*f_stop, Nf, 2*np.pi*gen_params['fl'], order=10, debug=args.debug)
+    Nf = 50000
+
+    w_stop = 2 * np.pi * f_stop
+    w_mix = 2 * np.pi * gen_params['fl']
     if model == 'base_PFC_CPL':
-        w, Ydc, Yac = analytic.CBCPL_SimpleYac2(Ydc_tf, 2*np.pi*f_stop, Nf, 2*np.pi*gen_params['fl'], order=100)
+        w, Ydc, Yac = analytic.CBCPL_SimpleYac2(Ydc_tf, w_stop, Nf, w_mix, order=100, debug=args.debug)
+    else:
+        w, Ydc, Yac = reflect_admittance(Ydc_tf, w_stop, Nf, w_mix, order=100, debug=args.debug)
+
     
     Zdc, Zac = 1 / Ydc, 1 / Yac
     Nf = len(w)
@@ -567,13 +624,53 @@ if __name__ == "__main__":
     ax.axvline(gen_params['fl'])    
     plt.show()
 
-    mixingSignalAnalysis = False
+    mixingSignalAnalysis = True
     if mixingSignalAnalysis:
         print_seperator('Mixing Signal Analysis')
+        # First, without a pertubation
+        Vp = gen_params['Vp']
+        gen_params['Vp'] = 0
+        gen_params['fp'] = 0
+        
+        # simulate
+        sim.write_param_file(model+'.gen', gen_params)
+        sim.execute_spice(model)
+
+        interpolate_dt = 1e-6
+
+        fig, ax = plt.subplots(8, 2)
+        incremental = plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000)
+
+        plt.tight_layout()
+        plt.show()
+
+        # t, vac, iac, vdc, idc = sim.get_voltage_and_current(model, interpolate_dt=interpolate_dt)
+        # t, mix = sim.extract_mixing_signal(model, interpolate_dt=interpolate_dt)
+    
+        # t_sl = slice(np.argmin(np.abs(t - 1)), None)
+        # t = t[t_sl]
+        # mix = mix[t_sl]
+        # vac = vac[t_sl]
+        # iac = iac[t_sl]
+        # vdc = vdc[t_sl]
+        # idc = idc[t_sl]
+
+        # N = len(t)
+        # fU = np.fft.fftshift(np.fft.fftfreq(N, t[1] - t[0]))
+        # sp_mixU = np.fft.fftshift(np.fft.fft(mix) / N)
+        # sp_vdcU = np.fft.fftshift(np.fft.fft(vdc) / N)
+        # sp_vacU = np.fft.fftshift(np.fft.fft(vac) / N)
+        # sp_idcU = np.fft.fftshift(np.fft.fft(idc) / N)
+        # sp_iacU = np.fft.fftshift(np.fft.fft(iac) / N)
+
+        # incremental = np.vstack((sp_mixU, sp_vdcU, sp_idcU, sp_vacU, sp_iacU))
+        # print(incremental.shape)
+
         # Simulate in SPICE with no pertubation to getsteady state mixing signal
         # it is *super important that this number i slarger enough to account for expect
         #       very *tiny* deviations in conduction window (delta t from sun paper)
-        gen_params['fp'] = 10
+        gen_params['fp'] = 9
+        gen_params['Vp'] = Vp
 
         # Compute DC Side Terms
         an_f_vdc, an_sp_vdc = analytic.CCPR_Vdc(lineVoltage=gen_params['Vg'], 
@@ -582,17 +679,20 @@ if __name__ == "__main__":
                                     pertubationFrequency=gen_params['fp'],
                                     maximumMixingOrder = 10, 
                                     positiveFrequenciesOnly=False,
-                                    combineLikeTerms=True)
+                                    combineLikeTerms=True,
+                                    includeSecondOrder=False)
         
         an_sp_idc_linear = analytic.LL_Idc(an_f_vdc, an_sp_vdc, Ydc_tf)
 
         if model == 'base_PFC_CPL':
-            bias = gen_params['Vg']/ np.sqrt(2)
+            bias = 2 * gen_params['Vg']/ np.pi
             power = bias**2 * gen_params['Ydc']
             cutoff = gen_params['wCPL']
-            an_sp_idc_nonlinear = analytic.CBCPL_Idc2(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, power, bias)
+            an_sp_idc_nonlinear = analytic.CBCPL_Idc(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, power, bias)
+            # an_sp_idc_nonlinear = analytic.CBCPL_Idc2(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, power, bias)
+            # an_sp_idc_nonlinear = analytic.CBCPL_Idc3(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, gen_params['fl'])
         elif model == 'base_CPL':
-            bias = gen_params['Vg']/ np.sqrt(2)
+            bias = 2 * gen_params['Vg']/ np.pi
             power = bias**2 * gen_params['Ydc']
             an_sp_idc_nonlinear = analytic.CPL_Idc(an_f_vdc, an_sp_vdc, power, bias)
 
@@ -609,11 +709,11 @@ if __name__ == "__main__":
         sim.write_param_file(model+'.gen', gen_params)
         sim.execute_spice(model)
 
-        interpolate_dt = sim.get_minimum_timestep(model)
-        interpolate_dt = (gen_params['Vp'] / (2*np.pi*(gen_params['Vg']*gen_params['fl'] + gen_params['Vp']*gen_params['fp']))) / 10
+        # interpolate_dt = sim.get_minimum_timestep(model)
+        # interpolate_dt = (gen_params['Vp'] / (2*np.pi*(gen_params['Vg']*gen_params['fl'] + gen_params['Vp']*gen_params['fp']))) / 10
 
         fig, ax = plt.subplots(8, 2)
-        plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000)
+        plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000, incremental=incremental)
 
         ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_vdc)), 'r+')
         ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc_linear)), 'g*')
@@ -635,7 +735,8 @@ if __name__ == "__main__":
     stoptimes = np.ones_like(freqs) * 2
 
     # Simulate in SPICE to get incremental impedance
-    sp = compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes, debug=args.debug)
+    # sp = compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes, debug=args.debug)
+    sp = compute_incremental_impedance2(model, gen_params, freqs, 100e-6)
 
     # Plot Results
     sl1 = slice(Nf // 2, None)
@@ -684,6 +785,18 @@ if __name__ == "__main__":
     ax.plot(w[sl] / (2 * np.pi), np.real(Zdc[sl]), label='Real')
     ax.plot(w[sl] / (2 * np.pi), np.imag(Zdc[sl]), label='Imag')
     ax.axvline(gen_params['fl'])
+    
+    plt.tight_layout()
+
+    plt.figure()
+    ax = plt.subplot(2, 1, 1)
+    ax.set_title("Simulated AC-Side Admittance")
+    ax.plot(np.real(1/sp), np.imag(1/sp))
+   
+    sl = slice(np.argmin(np.abs(w+2*np.pi*freqs[-1])), np.argmin(np.abs(w-2*np.pi*freqs[-1])))
+    ax = plt.subplot(2, 1, 2)
+    ax.set_title("Analytic DC-Side Admittance")
+    ax.plot(np.real(Ydc[sl]), np.imag(Ydc[sl]))
     
     plt.tight_layout()
     plt.show()
