@@ -35,6 +35,10 @@ def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max, f_mix=60, increm
     sp_mix = np.fft.fftshift(sp_mix)
     f = np.fft.fftshift(f)
 
+    # sometimes this can be too "clean" somehow which causes problems when taking log for db
+    # so here we set a floor
+    sp_mix += 1e-17 
+
     # Get ac and dc voltages and currents
     t, vac, iac, vdc, idc = sim.get_voltage_and_current(model, interpolate_dt=interpolate_dt)
 
@@ -51,12 +55,13 @@ def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max, f_mix=60, increm
     sp_idc = np.fft.fftshift(np.fft.fft(idc) / N)
     sp_iac = np.fft.fftshift(np.fft.fft(iac) / N)
 
+    # NOTE: This definiton of THD is probably inappropriate and almost definitely inappropriate for envelope
     def compute_thd(sp):
         idx = np.argmin(np.abs(f - f_mix))
         thd = (2 * sp)
         V1 = thd[idx]
         thd[idx] = 0
-        return np.sqrt(np.sum(thd[N//2:]**2)) / V1
+        return np.sqrt(np.sum(np.abs(thd[N//2:])**2)) / np.abs(V1)
     
     if incremental is not None:
         print("incrementing")
@@ -67,7 +72,7 @@ def plot_rectifier_ports(fig, ax, model, interpolate_dt, f_max, f_mix=60, increm
         sp_iac -= incremental[4, :]
     
 
-    f_sl = slice(np.argmin(np.abs(f + 0)), np.argmin(np.abs(f - f_max)))
+    f_sl = slice(np.argmin(np.abs(f + f_max)), np.argmin(np.abs(f - f_max)))
     magCutoff = 1e-3
 
     gs0 = ax[0, 0].get_gridspec()
