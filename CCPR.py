@@ -23,15 +23,16 @@ class CCPR():
         freqs = np.append(freqs, (2 * m + 1) * fL)
         vals = np.append(vals, (-1.0)**m * 2 / (2 * m + 1) / np.pi)
 
-        # perturbation modulation harmonics
-        freqs = np.append(freqs, 2 * m * fL + fP)
-        vals = np.append(vals, (-1.0)**m * vP / vL / np.pi)
-        freqs = np.append(freqs, 2 * m * fL - fP)
-        vals = np.append(vals, (-1.0)**m * np.conj(vP) / vL / np.pi)
+        if perturbationFrequency != 0:
+            # perturbation modulation harmonics
+            freqs = np.append(freqs, 2 * m * fL + fP)
+            vals = np.append(vals, (-1.0)**m * vP / vL / np.pi)
+            freqs = np.append(freqs, 2 * m * fL - fP)
+            vals = np.append(vals, (-1.0)**m * np.conj(vP) / vL / np.pi)
 
         return freqs, vals
 
-    # Wwen perturbed by an envelope, there is no window modulation harmonics
+    # When perturbed by an envelope, there is no window modulation harmonics
     def getEnvelopeMixingSpectrum(self):
         fL = self.fL
 
@@ -61,11 +62,12 @@ class CCPR():
         freqs = np.append(freqs, 2 * m * fL)
         vals = np.append(vals, (-1.0)**m * 2 * vL/ (1 - 4*m**2) / np.pi)
 
-        # Second Term: M[(2m+1) lineFrequency], Vac[+-pertubationFrequency]
-        freqs = np.append(freqs, (2 * m + 1) * fL + fP)
-        vals = np.append(vals, (-1.0)**m * vP / (2*m + 1) / np.pi)
-        freqs = np.append(freqs, (2 * m + 1) * fL - fP)
-        vals = np.append(vals, (-1.0)**m * np.conj(vP) / (2*m + 1) / np.pi)
+        if perturbationFrequency != 0:
+            # Second Term: M[(2m+1) lineFrequency], Vac[+-pertubationFrequency]
+            freqs = np.append(freqs, (2 * m + 1) * fL + fP)
+            vals = np.append(vals, (-1.0)**m * vP / (2*m + 1) / np.pi)
+            freqs = np.append(freqs, (2 * m + 1) * fL - fP)
+            vals = np.append(vals, (-1.0)**m * np.conj(vP) / (2*m + 1) / np.pi)
 
         return freqs, vals
     
@@ -84,14 +86,15 @@ class CCPR():
         freqs = np.append(freqs, 2 * m * fL)
         vals = np.append(vals, (-1.0)**m * 2 * vL/ (1 - 4*m**2) / np.pi)
         
-        # Second Term: M[(2m+1) lineFrequency], Vac[+-(lineFrequency +- pertubationFrequency)]
-        freqs = np.append(freqs, 2 * m * fL + fP)
-        vals = np.append(vals, (-1.0)**m * 2 * vP/ (1 - 4*m**2) / np.pi)
-        freqs = np.append(freqs, 2 * m * fL - fP)
-        vals = np.append(vals, (-1.0)**m * 2 * np.conj(vP) / (1 - 4*m**2) / np.pi)
+        if perturbationFrequency != 0:
+            # Second Term: M[(2m+1) lineFrequency], Vac[+-(lineFrequency +- pertubationFrequency)]
+            freqs = np.append(freqs, 2 * m * fL + fP)
+            vals = np.append(vals, (-1.0)**m * 2 * vP/ (1 - 4*m**2) / np.pi)
+            freqs = np.append(freqs, 2 * m * fL - fP)
+            vals = np.append(vals, (-1.0)**m * 2 * np.conj(vP) / (1 - 4*m**2) / np.pi)
 
         return freqs, vals
-    
+
     def getACCurrentSpectrum(self, perturbationFrequency, dcFrequencies, dcCurrents):
         mixFrequencies, mixSpectrum = self.getMixingSpectrum(perturbationFrequency)
 
@@ -99,24 +102,55 @@ class CCPR():
         perturbationCurrent = 0
         mirrorCurrent = 0
 
-        for i, mf in enumerate(mixFrequencies):
-            # Find terms that add into perturbation frequency
-            match_idx = np.where(mf == perturbationFrequency - dcFrequencies)[0]
-            if len(match_idx) > 1:
-                print("FATAL ERROR: Multiple indexes found")
-                exit()
-            elif len(match_idx) == 1:
-                perturbationCurrent += mixSpectrum[i] * dcCurrents[match_idx]
+        if (perturbationFrequency == 0):
+            dcCurrent = 0
+            lineCurrent = 0
+            doubleLineCurrent = 0
 
-            # Find similar for fundamental-mirrored perturbation frequency
-            match_idx = np.where(mf == (2 * self.fL - perturbationFrequency) - dcFrequencies)[0]
-            if len(match_idx) > 1:
-                print("FATAL ERROR: Multiple indexes found")
-                exit()
-            elif len(match_idx) == 1:
-                mirrorCurrent += mixSpectrum[i] * dcCurrents[match_idx]
+        for i, mf in enumerate(mixFrequencies):
+            if perturbationFrequency == 0: # unperturbed case
+                match_idx = np.where(mf == 0 - dcFrequencies)[0]
+                if len(match_idx) > 1:
+                    print("FATAL ERROR: Multiple indexes found")
+                    exit()
+                elif len(match_idx) == 1:
+                    dcCurrent += mixSpectrum[i] * dcCurrents[match_idx]
+
+                match_idx = np.where(mf == self.fL - dcFrequencies)[0]
+                if len(match_idx) > 1:
+                    print("FATAL ERROR: Multiple indexes found")
+                    exit()
+                elif len(match_idx) == 1:
+                    lineCurrent += mixSpectrum[i] * dcCurrents[match_idx]
+
+                # Find similar for fundamental-mirrored perturbation frequency
+                match_idx = np.where(mf == 2 * self.fL - dcFrequencies)[0]
+                if len(match_idx) > 1:
+                    print("FATAL ERROR: Multiple indexes found")
+                    exit()
+                elif len(match_idx) == 1:
+                    doubleLineCurrent += mixSpectrum[i] * dcCurrents[match_idx]
+            else:
+                # Find terms that add into perturbation frequency
+                match_idx = np.where(mf == perturbationFrequency - dcFrequencies)[0]
+                if len(match_idx) > 1:
+                    print("FATAL ERROR: Multiple indexes found")
+                    exit()
+                elif len(match_idx) == 1:
+                    perturbationCurrent += mixSpectrum[i] * dcCurrents[match_idx]
+
+                # Find similar for fundamental-mirrored perturbation frequency
+                match_idx = np.where(mf == (2 * self.fL - perturbationFrequency) - dcFrequencies)[0]
+                if len(match_idx) > 1:
+                    print("FATAL ERROR: Multiple indexes found")
+                    exit()
+                elif len(match_idx) == 1:
+                    mirrorCurrent += mixSpectrum[i] * dcCurrents[match_idx]
         
-        return perturbationCurrent, mirrorCurrent
+        if perturbationFrequency == 0:
+            return dcCurrent, lineCurrent, doubleLineCurrent
+        else:
+            return perturbationCurrent, mirrorCurrent # note that in unpertrubed case we will return the line and 2*line frequency
     
     def getEnvelopeACCurrentSpectrum(self, perturbationFrequency, dcFrequencies, dcCurrents):
         mixFrequencies, mixSpectrum = self.getMixingSpectrum(perturbationFrequency)
