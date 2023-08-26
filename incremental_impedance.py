@@ -168,6 +168,7 @@ def compute_incremental_impedance2(model, gen_params, freqs, timestep, fv=get_va
 
     # Allocate Array for final result
     sp = np.zeros(len(freqs), dtype=np.cdouble)
+    sp_mirror = np.zeros(len(freqs), dtype=np.cdouble)
 
     print("Beginning unperturbed simulation")
     Vp = gen_params['Vp'] 
@@ -209,9 +210,18 @@ def compute_incremental_impedance2(model, gen_params, freqs, timestep, fv=get_va
         spI = np.trapz(fi(ltr)[slP] * expP, tP) - np.trapz(fi(ltrUnperturbed)[slU] * expU, tU)
         sp[i] = spV / spI
 
+        # Find coefficient for fundamental-mirrored perturbation frequency
+        omega = 2 * np.pi * (2 * gen_params['fl'] - f)
+                             
+        expU = np.exp(-1j * omega * tU)
+        expP = np.exp(-1j * omega * tP)
+        # spV = np.trapz(fv(ltr)[slP] * expP, tP) - np.trapz(fv(ltrUnperturbed)[slU] * expU, tU) # do not recompute the voltage, jsut the current
+        spI = np.trapz(fi(ltr)[slP] * expP, tP) - np.trapz(fi(ltrUnperturbed)[slU] * expU, tU)
+        sp_mirror[i] = spV / spI
+
         print("\t Done. |Z(%f)|=%f, <Z(%f)=%f" % (f, np.abs(sp[i]), f, np.angle(sp[i])*180/np.pi))
 
-    return sp
+    return sp, sp_mirror
 
 # for the resistive case, it is pretty important that you have many harmonics!
 def reflect_admittance(Ydc_tf, w_stop, num_w, w_mix, order=3, debug=False):
@@ -374,34 +384,27 @@ if __name__ == "__main__":
 
     if model == 'r':
         print("Passive full-bridge recitifier with resistive load")
-        model = 'base_R'
-
+        model = 'ss_models/base_R'
         gen_params['Rdc'] = args.R
 
         Ydc_tf = signal.lti([1/gen_params['Rdc']], [1])
 
     elif model == 'rlc':
         print("Simple Passive RLC Model")
-        model = 'base_RLC'
+        model = 'ss_models/base_RLC'
 
         gen_params['Ldc'] = args.L
         gen_params['Cdc'] = args.C
         gen_params['Rdc'] = args.R
 
+        gen_params['timestep'] = 10e-6
+
         Ydc_tf = signal.lti([0, args.C*args.R, 1], 
                             [args.L*args.C*args.R, args.L, args.R])
 
-    elif model == 'cpl':
-        print("Passive CPL Model")
-        model = 'base_CPL'
-
-        gen_params['Ydc'] = args.Ydc
-        gen_params['Cdc'] = args.Cdc
-
-        Ydc_tf = signal.lti([-args.Ydc], [1])
     elif model == 'pfc_cpl':
         print("Passive PFC CPL Model")
-        model = 'base_PFC_CPL'
+        model = 'ss_models/base_PFC_CPL'
 
         w_cpl = args.fcpl * 2 * np.pi
 
@@ -411,175 +414,6 @@ if __name__ == "__main__":
 
         Ydc_tf = signal.lti([args.Cdc, args.Cdc*w_cpl + args.Ydc, -args.Ydc * w_cpl], [0, 1, w_cpl])
 
-    elif model == 'dc_cpl':
-        print("DC CPL Model")
-        model = 'dc_PFC_CPL'
-
-        w_cpl = args.fcpl * 2 * np.pi
-        Cdc = args.Cdc 
-        Ydc = args.Ydc
-        Vg = 100
-        Vp = 1
-
-        gen_params = {
-            'fp': 10,
-            'Ydc':Ydc,
-            'Cdc':Cdc,
-            'wCPL':w_cpl,
-            'transtop':2,
-            'transtart':0,
-            'timestep':2e-6,
-            'Vg':Vg,
-            'Vp':Vp
-        }
-
-        Ydc_tf = signal.lti([Cdc, Cdc*w_cpl + Ydc, -Ydc * w_cpl], [0, 1, w_cpl])
-
-        n = np.arange(0, 5)
-        harmonics = analytic.CPL_FourierTerm(n, Vg**2*Ydc, Vg, Vp)
-
-        an_f_vdc = n * gen_params['fp']
-        an_sp_vdc = np.zeros_like(an_f_vdc, dtype=np.double)
-        an_sp_vdc[0] = Vg/np.sqrt(2)
-        an_sp_vdc[1] = Vp/2
-        
-        an_sp_idc = analytic.CBCPL_Idc(w_cpl, an_f_vdc, an_sp_vdc, gen_params['Vg']**2 * gen_params['Ydc'] / 2, gen_params['Vg']/ np.sqrt(2))
-
-        sim.write_param_file(model+'.gen', gen_params)
-        sim.execute_spice(model)
-
-        # Get Data
-        ltr = sim.read_raw_file(model)
-        t = ltr.get_trace('time').get_wave()
-        t = np.abs(t) # fix sign error
-        voltage = get_vdc(ltr)
-        current = get_idc(ltr)
-
-        print('Sim Time: %fs to %fs, %d pts' % (t[0], t[-1], len(t)))
-
-        sl = slice(np.argmin(np.abs(t-1))-1, None)
-
-
-        # Interpolate
-        N = 10 * len(t)
-        N = np.max((N, 250000))
-        x, dx = np.linspace(1, t[-1], N, endpoint=False, retstep=True)
-        print('Interpolating time: 1s to %fs, %d pts' % (t[-1], len(x)))
-        
-        v_interp = interpolate.interp1d(t[sl], voltage[sl], 'quadratic')
-        i_interp = interpolate.interp1d(t[sl], current[sl], 'quadratic')
-        voltage = v_interp(x)
-        current = i_interp(x)
-        t = x
-        dt = dx
-
-        plt.figure()
-        plt.suptitle("Voltage and Current")
-        plt.plot(ltr.get_trace('time').get_time_axis(), get_vdc(ltr))
-        plt.plot(t, voltage, 'r+')
-        plt.plot(ltr.get_trace('time').get_time_axis(), get_idc(ltr))
-        plt.plot(t, current, 'g*')
-
-        # Take FFT which will be used to find coefficients
-        sp_v = np.fft.fft(voltage) / N
-        sp_i = np.fft.fft(current) / N
-
-        fx = np.fft.fftfreq(N, dt)
-
-        sl = slice(0, np.argmin(np.abs(fx-1000)))
-
-        sp_v = sp_v[sl]
-        sp_i = sp_i[sl]
-        fx = fx[sl]
-
-        idx = np.argmin(np.abs(fx - gen_params['fp']))
-        plt.figure()
-        
-        plt.subplot(2, 1, 1)
-        plt.title("Measurement Side Spectrum Magnitude")
-        plt.plot(fx, 20*np.log10(np.abs(sp_v)))
-        plt.plot(fx, 20*np.log10(np.abs(sp_i)))
-
-        for i, h in enumerate(harmonics):
-            plt.plot(fx[idx*i], 20*np.log10(np.abs(h)), 'r+')
-
-        plt.plot(an_f_vdc, 20*np.log10(np.abs(an_sp_vdc)), 'g*')
-        plt.plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc)), 'bo')
-
-        plt.subplot(2, 1, 2)
-        plt.title("Measurement Side Spectrum Phase")
-        plt.plot(fx, np.angle(sp_v))
-        plt.plot(fx, np.angle(sp_i))
-        plt.show()
-
-        # Spice Simulation
-        freqs = np.linspace(1, 200, 30)
-        freqs = np.floor(freqs)
-        timesteps = 1 / (100 * freqs)
-        stoptimes = 100 / freqs + 1
-        timesteps = np.zeros_like(freqs)
-        stoptimes = 2 * np.ones_like(freqs)
-
-        # Simulate in SPICE to get incremental impedance
-        sp = compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes, get_vdc, get_idc, args.debug)
-
-        # Analytic Estimation
-        f_stop = 500 # will be adjusted to remove edge effects
-        Nf = 10000
-        w = np.linspace(-2*np.pi*f_stop, 2*np.pi*f_stop, Nf)
-        Nf = len(w)
-        _, Ydc = signal.freqresp(Ydc_tf, w)
-        Zdc = 1 / Ydc
-
-        sl1 = slice(Nf // 2, None)
-        x1 = w[sl1] / (2 * np.pi)
-
-        sl2 = slice(None)
-        x2 = freqs[sl2]
-
-        y11 = 20 * np.log10(np.abs(Zdc[sl1]))
-        y13 = 20 * np.log10(np.abs(sp[sl2]))
-
-        y21 = (np.angle(Zdc[sl1])) * 180 / np.pi
-        y23 = (np.angle(sp[sl2])) * 180 / np.pi
-
-        plt.figure()
-        ax = plt.subplot(2, 1, 1)
-        ax.set_title("Magnitude")
-        ax.semilogx(x1, y11, label='Zdc')
-        ax.semilogx(x2, y13, 'r+')
-        ax.legend()
-
-        ax = plt.subplot(2, 1, 2)
-        ax.semilogx(x1, y21)
-        ax.semilogx(x2, y23, 'r+')
-        plt.show()
-        exit()
-    # This doesn't work very well
-    elif model == 'dc_ac_cpl':
-        print("DC CPL Model (AC Analysis)")
-        model = 'dc_ac_PFC_CPL'
-
-        fstart = 1
-        fstop = 200
-        Nf = 30
-
-        gen_params = {
-            'fp':0,
-            'Ydc':args.Ydc,
-            'Cdc':args.Cdc,
-            'wCPL':args.fcpl * 2 * np.pi,
-            'fstop':fstop,
-            'fstart':fstart,
-            'num_pts':Nf
-        }
-
-        # Simulate
-        sim.write_param_file(model+'.gen', gen_params)
-        sim.execute_spice(model)
-        ltr = sim.read_raw_file(model)
-
-        exit()
 
     # Analytic Estimation
     print_seperator('Analytical Estimation')
@@ -589,7 +423,10 @@ if __name__ == "__main__":
     w_stop = 2 * np.pi * f_stop
     w_mix = 2 * np.pi * gen_params['fl']
     if model == 'base_PFC_CPL':
-        w, Ydc, Yac = analytic.CBCPL_SimpleYac2(Ydc_tf, w_stop, Nf, w_mix, order=100, debug=args.debug)
+        # w, Ydc, Yac = analytic.CBCPL_SimpleYac2(Ydc_tf, w_stop, Nf, w_mix, order=100, debug=args.debug)
+        # w, Ydc, Yac = analytic.CBCPL_SimpleYac(Ydc_tf, w_stop, Nf, w_mix, order=1, debug=args.debug)
+        w, Ydc, Yac = analytic.CBCPL_ApproximateYac(args.Ydc, args.fcpl, f_stop, Nf, gen_params['fl'])
+
     else:
         w, Ydc, Yac = reflect_admittance(Ydc_tf, w_stop, Nf, w_mix, order=100, debug=args.debug)
 
@@ -625,76 +462,58 @@ if __name__ == "__main__":
     plt.show()
 
     mixingSignalAnalysis = True
+    incrementalMixingSignalAnalysis = False
     if mixingSignalAnalysis:
         print_seperator('Mixing Signal Analysis')
-        # First, without a pertubation
+
         Vp = gen_params['Vp']
-        gen_params['Vp'] = 0
-        gen_params['fp'] = 0
-        
-        # simulate
-        sim.write_param_file(model+'.gen', gen_params)
-        sim.execute_spice(model)
-
         interpolate_dt = 1e-6
+        if incrementalMixingSignalAnalysis:
+            # First, without a pertubation
+            gen_params['Vp'] = 0
+            gen_params['fp'] = 0
+            
+            # simulate
+            sim.write_param_file(model+'.gen', gen_params)
+            sim.execute_spice(model)
 
-        fig, ax = plt.subplots(8, 2)
-        incremental = plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000)
+            fig, ax = plt.subplots(8, 2)
+            incremental = plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000)
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            plt.show()
 
-        # t, vac, iac, vdc, idc = sim.get_voltage_and_current(model, interpolate_dt=interpolate_dt)
-        # t, mix = sim.extract_mixing_signal(model, interpolate_dt=interpolate_dt)
-    
-        # t_sl = slice(np.argmin(np.abs(t - 1)), None)
-        # t = t[t_sl]
-        # mix = mix[t_sl]
-        # vac = vac[t_sl]
-        # iac = iac[t_sl]
-        # vdc = vdc[t_sl]
-        # idc = idc[t_sl]
-
-        # N = len(t)
-        # fU = np.fft.fftshift(np.fft.fftfreq(N, t[1] - t[0]))
-        # sp_mixU = np.fft.fftshift(np.fft.fft(mix) / N)
-        # sp_vdcU = np.fft.fftshift(np.fft.fft(vdc) / N)
-        # sp_vacU = np.fft.fftshift(np.fft.fft(vac) / N)
-        # sp_idcU = np.fft.fftshift(np.fft.fft(idc) / N)
-        # sp_iacU = np.fft.fftshift(np.fft.fft(iac) / N)
-
-        # incremental = np.vstack((sp_mixU, sp_vdcU, sp_idcU, sp_vacU, sp_iacU))
-        # print(incremental.shape)
-
-        # Simulate in SPICE with no pertubation to getsteady state mixing signal
-        # it is *super important that this number i slarger enough to account for expect
-        #       very *tiny* deviations in conduction window (delta t from sun paper)
-        gen_params['fp'] = 9
+        # Simulate in SPICE with a pertubation
+        gen_params['fp'] = 30
         gen_params['Vp'] = Vp
 
         # Compute DC Side Terms
         an_f_vdc, an_sp_vdc = analytic.CCPR_Vdc(lineVoltage=gen_params['Vg'], 
                                     lineFrequency=gen_params['fl'], 
-                                    pertubationVoltage=gen_params['Vp'], 
-                                    pertubationFrequency=gen_params['fp'],
+                                    perturbationVoltage=gen_params['Vp'], 
+                                    perturbationFrequency=gen_params['fp'],
                                     maximumMixingOrder = 10, 
                                     positiveFrequenciesOnly=False,
                                     combineLikeTerms=True,
                                     includeSecondOrder=False)
         
+        an_sp_vdc = an_sp_vdc - 1j * 1e-16
+
         an_sp_idc_linear = analytic.LL_Idc(an_f_vdc, an_sp_vdc, Ydc_tf)
 
         if model == 'base_PFC_CPL':
             bias = 2 * gen_params['Vg']/ np.pi
             power = bias**2 * gen_params['Ydc']
             cutoff = gen_params['wCPL']
-            an_sp_idc_nonlinear = analytic.CBCPL_Idc(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, power, bias)
+            an_sp_idc_nonlinear = analytic.CBCPL_Idc2(cutoff, an_f_vdc, an_sp_vdc, power, bias)
             # an_sp_idc_nonlinear = analytic.CBCPL_Idc2(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, power, bias)
             # an_sp_idc_nonlinear = analytic.CBCPL_Idc3(cutoff, Ydc_tf, an_f_vdc, an_sp_vdc, gen_params['fl'])
         elif model == 'base_CPL':
             bias = 2 * gen_params['Vg']/ np.pi
             power = bias**2 * gen_params['Ydc']
             an_sp_idc_nonlinear = analytic.CPL_Idc(an_f_vdc, an_sp_vdc, power, bias)
+
+        
 
         # slice
         sl = slice(np.argmin(np.abs(an_f_vdc)), np.argmin(np.abs(an_f_vdc - 1000)))
@@ -705,15 +524,19 @@ if __name__ == "__main__":
         if model == 'base_PFC_CPL' or model == 'base_CPL':
             an_sp_idc_nonlinear = an_sp_idc_nonlinear[sl]
 
+        # print(an_f_vdc[:10])
+        # print(np.abs(an_sp_idc_nonlinear / an_sp_idc_linear)[:10])
+        # print(np.angle(an_sp_idc_nonlinear / an_sp_idc_linear)[:10] * 180 / np.pi)
+
         # simulate
         sim.write_param_file(model+'.gen', gen_params)
         sim.execute_spice(model)
 
-        # interpolate_dt = sim.get_minimum_timestep(model)
-        # interpolate_dt = (gen_params['Vp'] / (2*np.pi*(gen_params['Vg']*gen_params['fl'] + gen_params['Vp']*gen_params['fp']))) / 10
-
         fig, ax = plt.subplots(8, 2)
-        plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000, incremental=incremental)
+        if incrementalMixingSignalAnalysis:
+            plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000, incremental=incremental)
+        else:
+            plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000)
 
         ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_vdc)), 'r+')
         ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc_linear)), 'g*')
@@ -727,16 +550,118 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.show()
 
+        fig, ax = plt.subplots(1, 1)
+
+        # Get ac and dc voltages and currents
+        t, vac, iac, vdc, idc = sim.get_voltage_and_current(model, interpolate_dt=interpolate_dt)
+        t_sl = slice(np.argmin(np.abs(t - 1)), None)
+
+        t = t[t_sl]
+        vac = vac[t_sl]
+        iac = iac[t_sl]
+        vdc = vdc[t_sl]
+        idc = idc[t_sl]
+
+        N = len(t)
+        f = np.fft.fftshift(np.fft.fftfreq(N, t[1] - t[0]))
+        sp_vac = np.fft.fftshift(np.fft.fft(vac) / N)
+        sp_iac = np.fft.fftshift(np.fft.fft(iac) / N)
+        
+        # if incremental is not None:
+        #     print("incrementing")
+        #     sp_mix -= incremental[0, :]
+        #     sp_vdc -= incremental[1, :]
+        #     sp_idc -= incremental[2, :]
+        #     sp_vac -= incremental[3, :]
+        #     sp_iac -= incremental[4, :]
+        
+        f_max = 200
+        f_sl = slice(np.argmin(np.abs(f + f_max)), np.argmin(np.abs(f - f_max)))
+        magCutoff = 1e-2
+
+        sp_vac[np.abs(sp_vac) < magCutoff] = 1e-6
+        sp_iac[np.abs(sp_iac) < magCutoff] = 1e-6
+
+        ax.plot(f[f_sl], 20 * np.log10(np.abs(sp_vac[f_sl])), lw=2)
+        ax.plot(f[f_sl], 20 * np.log10(np.abs(sp_iac[f_sl])), lw=2)
+
+        xticks = [-120, -120 + gen_params['fp'], -60, -gen_params['fp'], 0, gen_params['fp'], 60, 120 - gen_params['fp'], 120]
+        xtick_labels = ["$-2f_{L}$", "$-2f_{L} + f_P$", "$-f_{L}$", "$f_{P}$", 0,
+                        "$f_{P}$", "$f_L$", "$2f_L - f_P$", "$2f_L$"]
+        
+        ax.set_xticks(xticks, xtick_labels)
+        plt.xlabel("Frequency [Hz]")
+        plt.ylabel("Magnitude")
+        plt.legend(["$v_{ac}[f]$", "$i_{ac}[f]$"])
+
+        plt.tight_layout()
+
+        fig, ax = plt.subplots(2, 1)
+
+        f_max = 1000
+        
+
+        # Get ac and dc voltages and currents
+        t, vac, iac, vdc, idc = sim.get_voltage_and_current(model, interpolate_dt=interpolate_dt)
+        t_sl = slice(np.argmin(np.abs(t - 1)), None)
+
+        t = t[t_sl]
+        vac = vac[t_sl]
+        iac = iac[t_sl]
+        vdc = vdc[t_sl]
+        idc = idc[t_sl]
+
+        N = len(t)
+        f = np.fft.fftshift(np.fft.fftfreq(N, t[1] - t[0]))
+        sp_vdc = np.fft.fftshift(np.fft.fft(vdc) / N)
+        sp_vac = np.fft.fftshift(np.fft.fft(vac) / N)
+        sp_idc = np.fft.fftshift(np.fft.fft(idc) / N)
+        sp_iac = np.fft.fftshift(np.fft.fft(iac) / N)
+        
+        # if incremental is not None:
+        #     print("incrementing")
+        #     sp_mix -= incremental[0, :]
+        #     sp_vdc -= incremental[1, :]
+        #     sp_idc -= incremental[2, :]
+        #     sp_vac -= incremental[3, :]
+        #     sp_iac -= incremental[4, :]
+        
+
+        f_sl = slice(np.argmin(np.abs(f + f_max)), np.argmin(np.abs(f - f_max)))
+        magCutoff = 1e-3
+
+        ax[0].plot(f[f_sl], 20 * np.log10(np.abs(sp_vdc[f_sl])))
+        ax[0].plot(f[f_sl], 20 * np.log10(np.abs(sp_idc[f_sl])))
+
+        sp_vdc[f_sl][np.abs(sp_vdc[f_sl]) < magCutoff] = 0
+        sp_idc[f_sl][np.abs(sp_idc[f_sl]) < magCutoff] = 0
+        ax[1].plot(f[f_sl], 180 / np.pi * np.angle(sp_vdc[f_sl]))
+        ax[1].plot(f[f_sl], 180 / np.pi * np.angle(sp_idc[f_sl]))
+
+        ax[0].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_vdc)), 'r+')
+        ax[0].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc_linear)), 'g*')
+        if model == 'base_CPL' or model == 'base_PFC_CPL':
+            ax[0].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc_nonlinear)), 'bx')
+
+        ax[1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_vdc), 'r+')
+        ax[1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_idc_linear), 'g*')
+        if model == 'base_CPL' or model == 'base_PFC_CPL':
+            ax[1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_idc_nonlinear), 'bx')
+
+
+        plt.tight_layout()
+        plt.show()
+
     print_seperator('Simulation')
     # Spice Simulation
-    freqs = np.linspace(1, 119, 119)
+    freqs = np.linspace(1, 119, 60)
     freqs = np.floor(freqs)
     timesteps = np.ones_like(freqs) * 100e-6
     stoptimes = np.ones_like(freqs) * 2
 
-    # Simulate in SPICE to get incremental impedance
+    # Simulate in SPICE to get incremental impedance and incremental impedance for mirror frequency
     # sp = compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes, debug=args.debug)
-    sp = compute_incremental_impedance2(model, gen_params, freqs, 100e-6)
+    sp, sp_mirror = compute_incremental_impedance2(model, gen_params, freqs, 10e-6)
 
     # Plot Results
     sl1 = slice(Nf // 2, None)
@@ -748,55 +673,60 @@ if __name__ == "__main__":
     y11 = 20 * np.log10(np.abs(Zdc[sl1]))
     y12 = 20 * np.log10(np.abs(Zac[sl1]))
     y13 = 20 * np.log10(np.abs(sp[sl2]))
+    y14 = 20 * np.log10(np.abs(sp_mirror[sl2]))
 
     y21 = (np.angle(Zdc[sl1])) * 180 / np.pi
     y22 = (np.angle(Zac[sl1])) * 180 / np.pi
     y23 = (np.angle(sp[sl2])) * 180 / np.pi
+    y24 = (np.angle(sp_mirror[sl2])) * 180 / np.pi
 
     plt.figure()
     ax = plt.subplot(2, 1, 1)
     ax.set_title("Magnitude")
-    ax.semilogx(x1, y11, label='Zdc')
+    ax.semilogx(x1, y11, label='Zdc', alpha =0.5)
     ax.semilogx(x1, y12, label='Zac')
     ax.semilogx(x2, y13, 'r+')
+    ax.semilogx(x2, y14, 'g*')
     ax.axvline(gen_params['fl'])
     ax.legend()
    
     ax = plt.subplot(2, 1, 2)
-    ax.semilogx(x1, y21)
+    ax.semilogx(x1, y21, alpha=0.5)
     ax.semilogx(x1, y22)
     ax.semilogx(x2, y23, 'r+')
+    ax.semilogx(x2, y24, 'g*')
     ax.axvline(gen_params['fl'])
     
-    # plt.show()
-    freqs = np.concatenate((np.flip(-freqs), freqs))
-    sp = np.concatenate((np.flip(np.conjugate(sp)), sp))
-    plt.figure()
-    ax = plt.subplot(2, 1, 1)
-    ax.set_title("Simulated")
-    ax.plot(freqs, np.real(sp), label='Real')
-    ax.plot(freqs, np.imag(sp), label='Imag')
-    ax.axvline(gen_params['fl'])
-    ax.legend()
-   
-    sl = slice(np.argmin(np.abs(w+2*np.pi*freqs[-1])), np.argmin(np.abs(w-2*np.pi*freqs[-1])))
-    ax = plt.subplot(2, 1, 2)
-    ax.set_title("DC-Side Impedance")
-    ax.plot(w[sl] / (2 * np.pi), np.real(Zdc[sl]), label='Real')
-    ax.plot(w[sl] / (2 * np.pi), np.imag(Zdc[sl]), label='Imag')
-    ax.axvline(gen_params['fl'])
-    
-    plt.tight_layout()
-
-    plt.figure()
-    ax = plt.subplot(2, 1, 1)
-    ax.set_title("Simulated AC-Side Admittance")
-    ax.plot(np.real(1/sp), np.imag(1/sp))
-   
-    sl = slice(np.argmin(np.abs(w+2*np.pi*freqs[-1])), np.argmin(np.abs(w-2*np.pi*freqs[-1])))
-    ax = plt.subplot(2, 1, 2)
-    ax.set_title("Analytic DC-Side Admittance")
-    ax.plot(np.real(Ydc[sl]), np.imag(Ydc[sl]))
-    
-    plt.tight_layout()
     plt.show()
+    exit()
+    # freqs = np.concatenate((np.flip(-freqs), freqs))
+    # sp = np.concatenate((np.flip(np.conjugate(sp)), sp))
+    # plt.figure()
+    # ax = plt.subplot(2, 1, 1)
+    # ax.set_title("Simulated")
+    # ax.plot(freqs, np.real(sp), label='Real')
+    # ax.plot(freqs, np.imag(sp), label='Imag')
+    # ax.axvline(gen_params['fl'])
+    # ax.legend()
+   
+    # sl = slice(np.argmin(np.abs(w+2*np.pi*freqs[-1])), np.argmin(np.abs(w-2*np.pi*freqs[-1])))
+    # ax = plt.subplot(2, 1, 2)
+    # ax.set_title("DC-Side Impedance")
+    # ax.plot(w[sl] / (2 * np.pi), np.real(Zdc[sl]), label='Real')
+    # ax.plot(w[sl] / (2 * np.pi), np.imag(Zdc[sl]), label='Imag')
+    # ax.axvline(gen_params['fl'])
+    
+    # plt.tight_layout()
+
+    # plt.figure()
+    # ax = plt.subplot(2, 1, 1)
+    # ax.set_title("Simulated AC-Side Admittance")
+    # ax.plot(np.real(1/sp), np.imag(1/sp))
+   
+    # sl = slice(np.argmin(np.abs(w+2*np.pi*freqs[-1])), np.argmin(np.abs(w-2*np.pi*freqs[-1])))
+    # ax = plt.subplot(2, 1, 2)
+    # ax.set_title("Analytic DC-Side Admittance")
+    # ax.plot(np.real(Ydc[sl]), np.imag(Ydc[sl]))
+    
+    # plt.tight_layout()
+    # plt.show()

@@ -17,14 +17,14 @@ import argparse
 def write_param_file(filename, params):
     tmp_filename = filename + '_'
 
-    with open(tmp_filename,"w") as f:
+    with open(tmp_filename,"x") as f:
         for key in params:
           f.write(".param {:s} {:E}\n".format(key, params[key]))
         f.write("\n")
         f.close()
 
     if os.path.isfile(filename) and filecmp.cmp(tmp_filename,filename):
-        # os.remove(tmp_filename)
+        os.remove(tmp_filename)
         pass
     else:
         copyfile(tmp_filename, filename)
