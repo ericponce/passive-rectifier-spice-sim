@@ -30,7 +30,7 @@ def get_vdc(ltr):
 def get_idc(ltr):
     return ltr.get_trace('I(R2)').get_wave()
 
-def compute_incremental_envelope_impedance(model, gen_params, freqs, timestep, fv=get_vac, fi=get_iac):
+def simulate_incremental_envelope_impedance(model, gen_params, freqs, timestep, fv=get_vac, fi=get_iac):
     # General Configuration
     gen_params['timestep'] = timestep
     gen_params['timestart'] = 0
@@ -102,8 +102,102 @@ def compute_incremental_envelope_impedance(model, gen_params, freqs, timestep, f
 
     return sp
 
-# for the resistive case, it is pretty important that you have many harmonics!
-def compute_envelope_admittance(Ydc_tf, w_stop, num_w, w_mix, order=3, debug=False):
+def simulate_incremental_envelope_impedance2(model, gen_params, freqs, timestep, fv=get_vac, fi=get_iac, ):
+    # General Configuration
+    gen_params['timestep'] = timestep
+    gen_params['timestart'] = 0
+    gen_params['timestop'] = 2
+
+    # Allocate Array for final result
+    sp = np.zeros(len(freqs), dtype=np.cdouble)
+
+    print("Beginning unperturbed simulation")
+    Vp = gen_params['Vp'] 
+    gen_params['Vp'] = 0
+    gen_params['fp'] = 0
+    sim.write_param_file(model+'.gen', gen_params)
+    sim.execute_spice(model)
+
+    # Get Data
+    ltrUnperturbed = sim.read_raw_file(model)
+
+    print("Beginning perturbed simulations")
+    for i, f in enumerate(freqs):
+        print("Finding impedance at f=%f, %d of %d" % (f, i, len(freqs)))
+        gen_params['fp'] = f
+        gen_params['Vp'] = Vp
+        sim.write_param_file(model+'.gen', gen_params)
+        sim.execute_spice(model)
+
+        # Get Data
+        ltr = sim.read_raw_file(model)
+
+        # compute complex fourier coefficient of impedance (perturbed and unperturbed)
+        fLine = gen_params['fl']
+        omegaPlus = 2 * np.pi * (fLine + f)
+
+        tUnperturbed = ltrUnperturbed.get_trace('time').get_time_axis()
+        tPerturbed = ltr.get_trace('time').get_time_axis()
+
+        slU = slice(np.argmin(np.abs(tUnperturbed-1)) - 1, None)
+        slP = slice(np.argmin(np.abs(tPerturbed-1)) - 1, None)
+
+        tU = tUnperturbed[slU]
+        tP = tPerturbed[slP]
+
+        expUPlus = np.exp(-1j * omegaPlus * tU)
+        expPPlus = np.exp(-1j * omegaPlus * tP)
+
+        spV  = np.trapz(fv(ltr)[slP] *  expPPlus, tP) - np.trapz(fv(ltrUnperturbed)[slU] * expUPlus, tU)
+        spI  = np.trapz(fi(ltr)[slP] * expPPlus, tP) - np.trapz(fi(ltrUnperturbed)[slU] * expUPlus, tU)
+        sp[i] = spV / spI
+
+        print("\t Done. |Z(%f)|=%f, <Z(%f)=%f" % (f, np.abs(sp[i]), f, np.angle(sp[i])*180/np.pi))
+
+    return sp
+
+# # for the resistive case, it is pretty important that you have many harmonics!
+# def compute_envelope_admittance(Ydc_tf, w_stop, num_w, w_mix, order=3, debug=False):
+#     w_stop_adj = w_stop + (2 * order + 1) * w_mix
+#     num_w_adj = int(num_w *(1 + (2 * order + 1) * w_mix / w_stop))
+#     num_w_adj += (1 if num_w_adj % 2 == 1 else 0)
+
+#     w = np.linspace(0, w_stop_adj, num_w_adj//2, endpoint=False)
+#     w = np.concatenate((np.flip(-w[1:]), w))
+
+#     Nf = len(w)
+#     _, Ydc = signal.freqresp(Ydc_tf, w)
+
+#     mix1_idx = np.argmin(np.abs(w - w_mix))
+#     roll = mix1_idx - Nf // 2
+
+#     if debug:
+#         x = w / (2 * np.pi)
+#         fig, ax = plt.subplots(2, 1)
+#         ax[0].set_xscale('symlog')
+#         ax[1].set_xscale('symlog')
+#         ax[0].plot(x, np.abs(Ydc))
+#         ax[1].plot(x, np.angle(Ydc))
+
+#     Yac = np.zeros_like(Ydc)
+
+#     Yac = (8 / np.pi**2) * Ydc
+
+#     if debug:
+#         plt.show()
+
+#     # cleanup
+#     w_stop1_idx = np.argmin(np.abs(w - (-w_stop)))
+#     w_stop2_idx = np.argmin(np.abs(w - w_stop))
+
+#     sl = slice(w_stop1_idx, w_stop2_idx)
+#     w = w[sl]
+#     Ydc = Ydc[sl]
+#     Yac = Yac[sl]
+
+#     return w, Ydc, Yac
+
+def compute_envelope_admittance(Ydc_tf, w_stop, num_w, w_mix, order=3, cpl=False, debug=False):
     w_stop_adj = w_stop + (2 * order + 1) * w_mix
     num_w_adj = int(num_w *(1 + (2 * order + 1) * w_mix / w_stop))
     num_w_adj += (1 if num_w_adj % 2 == 1 else 0)
@@ -114,7 +208,12 @@ def compute_envelope_admittance(Ydc_tf, w_stop, num_w, w_mix, order=3, debug=Fal
     Nf = len(w)
     _, Ydc = signal.freqresp(Ydc_tf, w)
 
-    mix1_idx = np.argmin(np.abs(w - 2 * w_mix))
+    if cpl:
+        zero_index = np.argmin(np.abs(w))
+        print(zero_index, w[zero_index])
+        Ydc[zero_index] = np.abs(Ydc[zero_index])
+
+    mix1_idx = np.argmin(np.abs(w - w_mix))
     roll = mix1_idx - Nf // 2
 
     if debug:
@@ -128,17 +227,17 @@ def compute_envelope_admittance(Ydc_tf, w_stop, num_w, w_mix, order=3, debug=Fal
     Yac = np.zeros_like(Ydc)
 
     orders = np.arange(order + 1)
-    orders = np.concatenate((np.flip(-orders[1:]), orders))
+    orders = np.concatenate((np.flip(-(orders+1)), orders))
     print(orders)
     for i in orders:
-        shift = np.roll(Ydc, -2 * i * roll) / (2 * i+1) / (1 - 4 * i**2)
-        Yac += shift
+        shift1 = np.roll(Ydc,  2*i*roll) / (2*i+1) / (1 - 4 * i**2)
+        Yac += shift1 #+ shift2
 
         if debug:
-            ax[0].plot(x, np.abs(shift))
-            ax[1].plot(x, np.angle(shift))
+            ax[0].plot(x, np.abs(shift1))
+            ax[1].plot(x, np.angle(shift1))
 
-    Yac *= (8 / np.pi**2)
+    Yac *= (8 / np.pi**2) 
 
     if debug:
         plt.show()
@@ -206,17 +305,15 @@ if __name__ == "__main__":
     }
 
     if model == 'r':
-        print("Not yet implemented")
-        exit()
-        print("Passive full-bridge recitifier with resistive load")
-        model = 'base_R'
+        print("Resistive Load")
+        model = 'env_models/base_R_Envelope'
 
         gen_params['Rdc'] = args.R
 
         Ydc_tf = signal.lti([1/gen_params['Rdc']], [1])
     elif model == 'rlc':
         print("RLC Model")
-        model = 'base_RLC_Envelope'
+        model = 'env_models/base_RLC_Envelope'
 
         gen_params['Ldc'] = args.L
         gen_params['Cdc'] = args.C
@@ -228,10 +325,8 @@ if __name__ == "__main__":
                             [args.L*args.C*args.R, args.L, args.R])
 
     elif model == 'pfc_cpl':
-        print("Not yet implemented")
-        exit()
         print("Passive PFC CPL Model")
-        model = 'base_PFC_CPL'
+        model = 'env_model/base_PFC_CPL_Envelope'
 
         w_cpl = args.fcpl * 2 * np.pi
 
@@ -254,13 +349,18 @@ if __name__ == "__main__":
     #     w, Ydc, Yac = analytic.CBCPL_ApproximateYac(args.Ydc, args.fcpl, f_stop, Nf, gen_params['fl'])
 
     # else:
-    w, Ydc, Yac = compute_envelope_admittance(Ydc_tf, w_stop, Nf, w_mix, order=1, debug=args.debug)
+    order = 10
+    if model == 'base_PFC_CPL_Envelope':
+        print("cpl")
+        w, Ydc, Yac = compute_envelope_admittance(Ydc_tf, w_stop, Nf, w_mix, cpl=True, order=order, debug=args.debug)
+    else:
+        w, Ydc, Yac = compute_envelope_admittance(Ydc_tf, w_stop, Nf, w_mix, order=order, debug=args.debug)
     Zdc, Zac = 1 / Ydc, 1 / Yac
     Nf = len(w)
 
     # Plot Results
-    # sl1 = slice(Nf // 2, None)
-    sl1 = slice(None)
+    sl1 = slice(Nf // 2, None)
+    # sl1 = slice(None)
     x1 = w[sl1] / (2 * np.pi)
 
     y11 = 20 * np.log10(np.abs(Zdc[sl1]))
@@ -290,42 +390,51 @@ if __name__ == "__main__":
     interpolate_dt = 1e-6
 
     # Simulate in SPICE with a pertubation
-    gen_params['fp'] = 5
+    gen_params['fp'] = 65
     gen_params['Vp'] = Vp
 
+    lineVoltage = gen_params['Vg']
+    lineFrequency = gen_params['fl']
+    perturbationVoltage = gen_params['Vp']
+    perturbationFrequency = gen_params['fp']
+    maximumMixingOrder = 10
+
+    # Compute mixing signal terms
+    f_mix, sp_mix = analytic.CCPR_Envelope_MixingSignal(
+                        lineVoltage, lineFrequency, 
+                        perturbationVoltage, perturbationFrequency,
+                        maximumMixingOrder)
+
+
     # Compute DC Side Terms
-    an_f_vdc, an_sp_vdc = analytic.CCPR_Vdc(lineVoltage=gen_params['Vg'], 
-                                lineFrequency=gen_params['fl'], 
-                                perturbationVoltage=gen_params['Vp'], 
-                                perturbationFrequency=gen_params['fp'],
-                                maximumMixingOrder = 10, 
-                                positiveFrequenciesOnly=False,
-                                combineLikeTerms=True,
-                                includeSecondOrder=False)
+    an_f_vdc, an_sp_vdc = analytic.CCPR_Envelope_Vdc(
+                        lineVoltage, lineFrequency, 
+                        perturbationVoltage, perturbationFrequency,
+                        maximumMixingOrder)
     
-    an_sp_vdc = an_sp_vdc - 1j * 1e-16
+    # an_sp_vdc = an_sp_vdc - 1j * 1e-16
 
     an_sp_idc_linear = analytic.LL_Idc(an_f_vdc, an_sp_vdc, Ydc_tf)
 
-    if model == 'base_PFC_CPL':
-        print("Not yet implemented")
-        exit()
-        bias = 2 * gen_params['Vg']/ np.pi
-        power = bias**2 * gen_params['Ydc']
-        cutoff = gen_params['wCPL']
-        an_sp_idc_nonlinear = analytic.CBCPL_Idc2(cutoff, an_f_vdc, an_sp_vdc, power, bias)
+    # if model == 'base_PFC_CPL':
+    #     print("Not yet implemented")
+    #     exit()
+    #     bias = 2 * gen_params['Vg']/ np.pi
+    #     power = bias**2 * gen_params['Ydc']
+    #     cutoff = gen_params['wCPL']
+    #     an_sp_idc_nonlinear = analytic.CBCPL_Idc2(cutoff, an_f_vdc, an_sp_vdc, power, bias)
 
 
     
 
     # slice
-    sl = slice(np.argmin(np.abs(an_f_vdc)), np.argmin(np.abs(an_f_vdc - 1000)))
-    an_f_vdc = an_f_vdc[sl]
-    an_sp_vdc = an_sp_vdc[sl]
-    an_sp_idc_linear = an_sp_idc_linear[sl]
+    # sl = slice(np.argmin(np.abs(an_f_vdc)), np.argmin(np.abs(an_f_vdc - 1000)))
+    # an_f_vdc = an_f_vdc[sl]
+    # an_sp_vdc = an_sp_vdc[sl]
+    # an_sp_idc_linear = an_sp_idc_linear[sl]
 
-    if model == 'base_PFC_CPL' or model == 'base_CPL':
-        an_sp_idc_nonlinear = an_sp_idc_nonlinear[sl]
+    # if model == 'base_PFC_CPL' or model == 'base_CPL':
+    #     an_sp_idc_nonlinear = an_sp_idc_nonlinear[sl]
 
     # simulate
     sim.write_param_file(model+'.gen', gen_params)
@@ -334,12 +443,17 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(8, 2)
     plot_utils.plot_rectifier_ports(fig, ax, model, interpolate_dt, 1000)
 
-    # ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_vdc)), 'r+')
+    # plot mixing signal harmonics
+    ax[3][1].plot(f_mix, 20*np.log10(np.abs(sp_mix)), 'bx')
+    ax[4][1].plot(f_mix, 180 / np.pi * np.angle(sp_mix), 'bx')
+
+    # plot dc side harmonics
+    ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_vdc)), 'r+')
     # ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc_linear)), 'g*')
     # if model == 'base_CPL' or model == 'base_PFC_CPL':
     #     ax[6][1].plot(an_f_vdc, 20*np.log10(np.abs(an_sp_idc_nonlinear)), 'bx')
 
-    # ax[7][1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_vdc), 'r+')
+    ax[7][1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_vdc), 'r+')
     # ax[7][1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_idc_linear), 'g*')
     # if model == 'base_CPL' or model == 'base_PFC_CPL':
     #     ax[7][1].plot(an_f_vdc, 180 / np.pi * np.angle(an_sp_idc_nonlinear), 'bx')
@@ -355,39 +469,43 @@ if __name__ == "__main__":
 
     # Simulate in SPICE to get incremental impedance
     # sp = compute_incremental_impedance(model, gen_params, freqs, timesteps, stoptimes, debug=args.debug)
-    sp = compute_incremental_envelope_impedance(model, gen_params, freqs, 100e-6)
+    sp = simulate_incremental_envelope_impedance2(model, gen_params, freqs, 100e-6)
 
     # Plot Results
-    # sl1 = slice(Nf // 2, None)
-    # x1 = w[sl1] / (2 * np.pi)
+    idx = np.argmin(np.abs(w / 2 / np.pi - gen_params['fl']))
+    sl1 = slice(Nf // 2, idx)
+    x1 = w[sl1] / (2 * np.pi)
 
     sl2 = slice(None)
     x2 = freqs[sl2]
 
-    # y11 = 20 * np.log10(np.abs(Zdc[sl1]))
-    # y12 = 20 * np.log10(np.abs(Zac[sl1]))
+    y11 = 20 * np.log10(np.abs(Zdc[sl1]))
+    y12 = 20 * np.log10(np.abs(Zac[sl1]))
     y13 = 20 * np.log10(np.abs(sp[sl2]))
 
-    # y21 = (np.angle(Zdc[sl1])) * 180 / np.pi
-    # y22 = (np.angle(Zac[sl1])) * 180 / np.pi
+    y21 = (np.angle(Zdc[sl1])) * 180 / np.pi
+    y22 = (np.angle(Zac[sl1])) * 180 / np.pi
     y23 = (np.angle(sp[sl2])) * 180 / np.pi
 
-    plt.figure()
+    plt.figure(dpi=300)
     ax = plt.subplot(2, 1, 1)
-    ax.set_title("Magnitude")
-    # ax.semilogx(x1, y11, label='Zdc')
-    # ax.semilogx(x1, y12, label='Zac')
-    ax.semilogx(x2, y13, 'r+')
-    ax.axvline(gen_params['fl'])
+    # ax.set_title("Magnitude")
+    ax.semilogx(x1, y11, label='Zdc')
+    ax.semilogx(x1, y12, label='Zac')
+    ax.semilogx(x2, y13, 'r+', label='Simulated')
+    # ax.axvline(gen_params['fl'])
+    ax.set_ylabel('Magnitude [dB]')
     ax.legend()
    
     ax = plt.subplot(2, 1, 2)
-    ax.set_title("Phase")
-    # ax.semilogx(x1, y21)
-    # ax.semilogx(x1, y22)
+    # ax.set_title("Phase")
+    ax.semilogx(x1, y21)
+    ax.semilogx(x1, y22)
     ax.semilogx(x2, y23, 'r+')
-    ax.axvline(gen_params['fl'])
-    
+    ax.set_ylabel('Phase [degrees]')
+    ax.set_xlabel('Frequency [Hz]')
+    # ax.axvline(gen_params['fl'])
+    plt.savefig('envelope_imepdance.pdf', transparent=True)
     plt.show()
     # freqs = np.concatenate((np.flip(-freqs), freqs))
     # sp = np.concatenate((np.flip(np.conjugate(sp)), sp))
