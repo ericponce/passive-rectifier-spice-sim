@@ -31,6 +31,7 @@ def getDCCurrentSpectrum(cutoff, admittance, frequencies, voltageSpectrum):
                 idc[idx] += adderand 
             elif len(idx) > 1: # error
                 print("FATAL ERROR: Input Vdc terms not combined")
+                exit()
 
             n += 1
 
@@ -45,6 +46,7 @@ def getDCCurrentSpectrum(cutoff, admittance, frequencies, voltageSpectrum):
                     idx = np.where(freqs == n * f1 + m * f2)[0]
                     if len(idx) > 1:
                         print("FATAL ERROR: Input Vdc terms not combined")
+                        exit()
                     elif len(idx) == 1:
                         # print("hit: n=%d, f1=%d, m=%d, f2=%d, n*f1+m*f2=%d" % (n, f1, m, f2, n * f1 + m * f2))
                         idx = idx[0]
